@@ -1,0 +1,52 @@
+.calculatorWindow {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.calculatorHeader {
+  margin-bottom: 1.5rem;
+}
+
+.calculatorHeader h1 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.recipeSelector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.searchInput {
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  min-width: 200px;
+  border: 1px solid var(--foreground);
+  border-radius: 4px;
+  background: var(--background);
+}
+
+.recipeDropdown {
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  min-width: 280px;
+  border: 1px solid var(--foreground);
+  border-radius: 4px;
+  background: var(--background);
+}
+
+.calculatorBody {
+  min-height: 200px;
+}
+
+.loading,
+.noRecipe,
+.hint {
+  padding: 1rem;
+  opacity: 0.85;
+}

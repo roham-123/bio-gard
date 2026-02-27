@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bio Gard Recipe Calculator
 
-## Getting Started
+Lean prototype calculator for Bio Gard recipes: select a recipe, edit batch size, choose CFU per gram for each bacteria ingredient (or add new options), and see recalculated grams, percent, cost, and totals.
 
-First, run the development server:
+## Tech
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **Next.js** (App Router) + **TypeScript**
+- **Postgres** with **pg** (node-postgres)
+- Plain SQL migrations: `db/schema.sql` then `db/seed.sql`
+- No auth, no CRM, no FX, no expiry, no rounding rules
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. **Create a Postgres database**
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+   ```bash
+   createdb bac_calc
+   # or via psql: CREATE DATABASE bac_calc;
+   ```
 
-## Learn More
+2. **Run the schema**
 
-To learn more about Next.js, take a look at the following resources:
+   ```bash
+   psql -d bac_calc -f db/schema.sql
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. **Run the seed**
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   ```bash
+   psql -d bac_calc -f db/seed.sql
+   ```
 
-## Deploy on Vercel
+4. **Set `DATABASE_URL`**
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+   ```bash
+   export DATABASE_URL="postgresql://user:password@localhost:5432/bac_calc"
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+   (Replace `user`, `password`, and host/port as needed.)
+
+5. **Install dependencies and run the dev server**
+
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+   Open [http://localhost:3000](http://localhost:3000). Go to **Recipes**, then open a recipe to use the calculator.
+
+## Pages
+
+- **`/`** — Home with link to recipes.
+- **`/recipes`** — List of recipes; click one to open the calculator.
+- **`/recipes/[id]`** — Recipe calculator:
+  - Batch size input (grams; stored as grams; display shows kg when ≥ 1000).
+  - Table: ingredient, grams, %, selected CFU/g (dropdown for bacteria), target total CFU, total CFU, final CFU/g, cost/kg, cost in product.
+  - For bacteria lines: “+ Add option” to add a new CFU option (label + numeric CFU/g) and set it as selected.
+  - Totals: sum of grams, total CFU, total cost, cost per kg.
+
+## Data and calculations
+
+- **Recipes** have a default batch size (grams).
+- **Recipe lines** have: ingredient, `is_bacteria`, `cost_per_kg_gbp`, `target_total_cfu` (constant for bacteria, 0 for fillers), `filler_mode` (fixed / ratio / remainder), `filler_ratio` (for ratio fillers).
+- **Bacteria:** `grams = target_total_cfu / cfu_per_g`; percent, cost, total CFU, and final CFU/g follow from that.
+- **Fixed fillers:** grams scale with batch; ratio fillers share the remainder by `filler_ratio`; remainder filler takes the rest.
+- Scientific notation (e.g. `1.00e11`) is supported in inputs and displayed in UI (e.g. `1.00E+11`).
+
+## Project layout
+
+- `src/app/` — App Router pages and server action.
+- `src/lib/db.ts` — DAL (Pool, `getRecipes`, `getRecipe`, `addCfuOption`).
+- `src/lib/calc.ts` — Client-side calculation logic.
+- `src/lib/format.ts` — Number/CFU/currency formatting and scientific input parsing.
+- `db/schema.sql` — Table definitions.
+- `db/seed.sql` — Seed data (recipes, ingredients, recipe lines, CFU options).
