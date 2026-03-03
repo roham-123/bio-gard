@@ -26,8 +26,8 @@ export default function RecipeCalculator({ recipe }: Props) {
   const [newCfuLabel, setNewCfuLabel] = useState("");
   const [newCfuPerGram, setNewCfuPerGram] = useState("");
   const [newCfuPrice, setNewCfuPrice] = useState("");
-  const [editingCostLineId, setEditingCostLineId] = useState<number | null>(null);
-  const [costEditDraft, setCostEditDraft] = useState("");
+  const [isEditingCosts, setIsEditingCosts] = useState(false);
+  const [costSnapshot, setCostSnapshot] = useState<{ lineId: number; costPerKgGbp: number }[]>([]);
   const [lineInputs, setLineInputs] = useState<LineInput[]>(() =>
     recipeToLineInputs(recipe)
   );
@@ -132,80 +132,126 @@ export default function RecipeCalculator({ recipe }: Props) {
     return map;
   }, [result.results]);
 
-  const handleCostEditStart = useCallback((lineId: number, currentCost: number) => {
-    setEditingCostLineId(lineId);
-    setCostEditDraft(String(currentCost));
-  }, []);
+  const handleEditCostsStart = useCallback(() => {
+    setCostSnapshot(lineInputs.map((l) => ({ lineId: l.lineId, costPerKgGbp: l.costPerKgGbp })));
+    setIsEditingCosts(true);
+  }, [lineInputs]);
 
-  const handleCostEditSave = useCallback(
-    (lineId: number) => {
-      const n = parseScientific(costEditDraft);
-      if (!Number.isNaN(n) && n >= 0) {
-        setLineInputs((prev) =>
-          prev.map((l) => (l.lineId === lineId ? { ...l, costPerKgGbp: n } : l))
-        );
-        updateRecipeLineCost(lineId, n);
-      }
-      setEditingCostLineId(null);
-    },
-    [costEditDraft]
-  );
+  const handleEditCostsSave = useCallback(() => {
+    lineInputs.forEach((l) => updateRecipeLineCost(l.lineId, l.costPerKgGbp));
+    setAddCfuLineId(null);
+    setNewCfuLabel("");
+    setNewCfuPerGram("");
+    setNewCfuPrice("");
+    setIsEditingCosts(false);
+  }, [lineInputs]);
 
-  const handleCostEditCancel = useCallback(() => {
-    setEditingCostLineId(null);
+  const handleEditCostsCancel = useCallback(() => {
+    setLineInputs((prev) =>
+      prev.map((l) => {
+        const s = costSnapshot.find((x) => x.lineId === l.lineId);
+        return s ? { ...l, costPerKgGbp: s.costPerKgGbp } : l;
+      })
+    );
+    setAddCfuLineId(null);
+    setNewCfuLabel("");
+    setNewCfuPerGram("");
+    setNewCfuPrice("");
+    setIsEditingCosts(false);
+  }, [costSnapshot]);
+
+  const setLineCost = useCallback((lineId: number, value: number) => {
+    if (Number.isNaN(value) || value < 0) return;
+    setLineInputs((prev) =>
+      prev.map((l) => (l.lineId === lineId ? { ...l, costPerKgGbp: value } : l))
+    );
   }, []);
 
   return (
-    <div style={{ padding: "1rem 0" }}>
-      <div style={{ marginBottom: "1rem" }}>
-        <label>
-          Batch size (g):{" "}
-          <input
-            type="text"
-            value={batchInput}
-            onChange={(e) => setBatchInput(e.target.value)}
-            onBlur={handleBatchBlur}
-            onKeyDown={handleBatchKeyDown}
-            style={{ width: 140 }}
-          />
-        </label>
-        <span style={{ marginLeft: "0.5rem", opacity: 0.8 }}>
-          {batchGrams >= 1000 ? `= ${formatNumber(batchGrams / 1000)} kg` : ""}
-        </span>
+    <div className="space-y-6">
+      {/* Batch size + Edit toolbar */}
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-600 dark:bg-zinc-800/50">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+              Batch size (g)
+            </label>
+            <input
+              type="text"
+              value={batchInput}
+              onChange={(e) => setBatchInput(e.target.value)}
+              onBlur={handleBatchBlur}
+              onKeyDown={(e) => e.key === "Enter" && syncBatchFromInput()}
+              className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium tabular-nums shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+            />
+            {batchGrams >= 1000 && (
+              <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                = {formatNumber(batchGrams / 1000)} kg
+              </span>
+            )}
+          </div>
+          <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600" />
+          {isEditingCosts ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleEditCostsSave}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-800"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={handleEditCostsCancel}
+                className="rounded-lg border-2 border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+              >
+                Cancel
+              </button>
+              <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                Edit cost/kg and CFU/g in the table below, then click Save.
+              </span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleEditCostsStart}
+              className="rounded-lg border-2 border-zinc-400 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+            >
+              Edit
+            </button>
+          )}
+        </div>
       </div>
 
       {result.error && (
         <div
           role="alert"
-          style={{
-            padding: "0.75rem",
-            marginBottom: "1rem",
-            background: "rgba(200,0,0,0.15)",
-            border: "1px solid #c00",
-            borderRadius: 4,
-          }}
+          className="rounded-xl border-2 border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
         >
           {result.error}
         </div>
       )}
 
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
+      {/* Table */}
+      <div className="overflow-x-auto rounded-xl border-2 border-zinc-200 bg-white shadow-md dark:border-zinc-600 dark:bg-zinc-800">
+        <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
           <thead>
-            <tr style={{ borderBottom: "2px solid var(--foreground)" }}>
-              <th style={{ textAlign: "left", padding: "0.5rem" }}>Ingredient</th>
-              <th style={{ textAlign: "right", padding: "0.5rem" }}>g</th>
-              <th style={{ textAlign: "right", padding: "0.5rem" }}>%</th>
-              <th style={{ textAlign: "left", padding: "0.5rem" }}>CFU/g</th>
-              <th style={{ textAlign: "right", padding: "0.5rem" }}>Target CFU</th>
-              <th style={{ textAlign: "right", padding: "0.5rem" }}>Total CFU</th>
-              <th style={{ textAlign: "right", padding: "0.5rem" }}>Final CFU/g</th>
-              <th style={{ textAlign: "right", padding: "0.5rem" }}>Cost/kg</th>
-              <th style={{ textAlign: "right", padding: "0.5rem" }}>Cost</th>
-              <th style={{ textAlign: "center", padding: "0.5rem", width: 100 }}>Actions</th>
+            <tr className="bg-zinc-100 dark:bg-zinc-700/80">
+              <th className="px-4 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                Ingredient
+              </th>
+              <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">g</th>
+              <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">kg</th>
+              <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">%</th>
+              <th className="px-4 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">CFU/g</th>
+              <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Target CFU</th>
+              <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Total CFU</th>
+              <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Final CFU/g</th>
+              <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/kg</th>
+              <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
             {lineInputs.map((line) => {
               const res = resultByLineId.get(line.lineId);
               const isBacteria = line.isBacteria;
@@ -215,173 +261,167 @@ export default function RecipeCalculator({ recipe }: Props) {
               const showAddCfu = addCfuLineId === line.lineId;
 
               return (
-                <tr key={line.lineId} style={{ borderBottom: "1px solid #ccc" }}>
-                  <td style={{ padding: "0.5rem" }}>
-                    {line.ingredientCode ? `[${line.ingredientCode}] ` : ""}
+                <tr
+                  key={line.lineId}
+                  className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-700/40"
+                >
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-zinc-900 dark:text-zinc-100">
+                    {line.ingredientCode && (
+                      <span className="text-zinc-500">[{line.ingredientCode}] </span>
+                    )}
                     {line.ingredientName}
                     {res?.warning && (
-                      <span style={{ color: "#c00", marginLeft: 4 }} title={res.warning}>
+                      <span
+                        className="ml-1 text-red-500"
+                        title={res.warning}
+                        aria-label={res.warning}
+                      >
                         ⚠
                       </span>
                     )}
                   </td>
-                  <td style={{ textAlign: "right", padding: "0.5rem" }}>
+                  <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {res ? formatNumber(res.grams, { maxDecimals: 2 }) : "—"}
                   </td>
-                  <td style={{ textAlign: "right", padding: "0.5rem" }}>
+                  <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                    {res ? formatNumber(res.grams / 1000, { maxDecimals: 4 }) : "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {res ? formatPercent(res.percent) : "—"}
                   </td>
-                  <td style={{ padding: "0.5rem" }}>
+                  <td className="px-4 py-3 text-sm">
                     {isBacteria ? (
-                      <div>
-                        <select
-                          value={selectedOptId ?? ""}
-                          onChange={(e) => {
-                            const optionId = Number(e.target.value);
-                            setSelectedCfu((m) => new Map(m).set(line.lineId, optionId));
-                            const opt = line.cfuOptions.find((o) => o.id === optionId);
-                            if (opt?.price_gbp != null) {
-                              setLineInputs((prev) =>
-                                prev.map((l) =>
-                                  l.lineId === line.lineId
-                                    ? { ...l, costPerKgGbp: opt.price_gbp ?? l.costPerKgGbp }
-                                    : l
-                                )
-                              );
-                              updateRecipeLineCost(line.lineId, opt.price_gbp);
-                            }
-                          }}
-                          style={{ minWidth: 120 }}
-                        >
-                          {line.cfuOptions.map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.label} ({formatCfu(o.cfu_per_gram)})
-                            </option>
-                          ))}
-                        </select>
-                        {line.cfuOptions.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              selectedOptId != null &&
-                              handleDeleteCfuOption(line.lineId, selectedOptId)
-                            }
-                            title="Delete selected CFU option"
-                            style={{ marginLeft: 4, fontSize: "0.85rem" }}
-                          >
-                            Delete option
-                          </button>
-                        )}
-                        {!showAddCfu ? (
-                          <button
-                            type="button"
-                            onClick={() => setAddCfuLineId(line.lineId)}
-                            style={{ marginLeft: 4, fontSize: "0.85rem" }}
-                          >
-                            + Add option
-                          </button>
-                        ) : (
-                          <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                            <input
-                              placeholder="Label"
-                              value={newCfuLabel}
-                              onChange={(e) => setNewCfuLabel(e.target.value)}
-                              style={{ width: 80 }}
-                            />
-                            <input
-                              placeholder="CFU/g (e.g. 1e11)"
-                              value={newCfuPerGram}
-                              onChange={(e) => setNewCfuPerGram(e.target.value)}
-                              style={{ width: 100 }}
-                            />
-                            <input
-                              placeholder="Price (£)"
-                              value={newCfuPrice}
-                              onChange={(e) => setNewCfuPrice(e.target.value)}
-                              style={{ width: 90 }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleAddCfuOption(line.lineId, line.ingredientId)
+                      isEditingCosts ? (
+                        <div className="space-y-1">
+                          <select
+                            value={selectedOptId ?? ""}
+                            onChange={(e) => {
+                              const optionId = Number(e.target.value);
+                              setSelectedCfu((m) => new Map(m).set(line.lineId, optionId));
+                              const opt = line.cfuOptions.find((o) => o.id === optionId);
+                              if (opt?.price_gbp != null) {
+                                setLineInputs((prev) =>
+                                  prev.map((l) =>
+                                    l.lineId === line.lineId
+                                      ? { ...l, costPerKgGbp: opt.price_gbp ?? l.costPerKgGbp }
+                                      : l
+                                  )
+                                );
+                                updateRecipeLineCost(line.lineId, opt.price_gbp);
                               }
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAddCfuLineId(null);
-                                setNewCfuLabel("");
-                                setNewCfuPerGram("");
-                                setNewCfuPrice("");
-                              }}
-                            >
-                              Cancel
-                            </button>
+                            }}
+                            className="min-w-[140px] rounded-lg border border-zinc-300 bg-zinc-50 px-2.5 py-1.5 text-sm font-medium focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100 dark:focus:bg-zinc-600"
+                          >
+                            {line.cfuOptions.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.label} ({formatCfu(o.cfu_per_gram)})
+                              </option>
+                            ))}
+                          </select>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {line.cfuOptions.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  selectedOptId != null &&
+                                  handleDeleteCfuOption(line.lineId, selectedOptId)
+                                }
+                                className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-500"
+                              >
+                                Delete option
+                              </button>
+                            )}
+                            {!showAddCfu ? (
+                              <button
+                                type="button"
+                                onClick={() => setAddCfuLineId(line.lineId)}
+                                className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-500"
+                              >
+                                + Add option
+                              </button>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <input
+                                  placeholder="Label"
+                                  value={newCfuLabel}
+                                  onChange={(e) => setNewCfuLabel(e.target.value)}
+                                  className="w-20 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-600 dark:text-zinc-100"
+                                />
+                                <input
+                                  placeholder="CFU/g"
+                                  value={newCfuPerGram}
+                                  onChange={(e) => setNewCfuPerGram(e.target.value)}
+                                  className="w-20 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-600 dark:text-zinc-100"
+                                />
+                                <input
+                                  placeholder="Price (£)"
+                                  value={newCfuPrice}
+                                  onChange={(e) => setNewCfuPrice(e.target.value)}
+                                  className="w-20 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-600 dark:text-zinc-100"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleAddCfuOption(line.lineId, line.ingredientId)
+                                  }
+                                  className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAddCfuLineId(null);
+                                    setNewCfuLabel("");
+                                    setNewCfuPerGram("");
+                                    setNewCfuPrice("");
+                                  }}
+                                  className="rounded-lg border border-zinc-300 bg-white px-3 py-1 text-xs font-medium dark:border-zinc-600 dark:bg-zinc-600 dark:text-zinc-200"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                          {selectedOpt
+                            ? `${selectedOpt.label} (${formatCfu(selectedOpt.cfu_per_gram)})`
+                            : "—"}
+                        </span>
+                      )
                     ) : (
-                      "—"
+                      <span className="text-zinc-400">—</span>
                     )}
                   </td>
-                  <td style={{ textAlign: "right", padding: "0.5rem" }}>
-                    {isBacteria ? formatCfu(line.targetTotalCfu) : "—"}
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                    {isBacteria && res ? formatCfu(res.targetTotalCfu) : "—"}
                   </td>
-                  <td style={{ textAlign: "right", padding: "0.5rem" }}>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {res ? formatCfu(res.totalCfu) : "—"}
                   </td>
-                  <td style={{ textAlign: "right", padding: "0.5rem" }}>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {res && res.isBacteria ? formatCfu(res.finalCfuPerGram) : "—"}
                   </td>
-                  <td style={{ textAlign: "right", padding: "0.5rem" }}>
-                    {editingCostLineId === line.lineId ? (
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums">
+                    {isEditingCosts ? (
                       <input
                         type="text"
-                        value={costEditDraft}
-                        onChange={(e) => setCostEditDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleCostEditSave(line.lineId);
-                          if (e.key === "Escape") handleCostEditCancel();
-                        }}
-                        style={{ width: 72, textAlign: "right" }}
-                        autoFocus
+                        value={line.costPerKgGbp}
+                        onChange={(e) =>
+                          setLineCost(line.lineId, parseScientific(e.target.value))
+                        }
+                              className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
                       />
                     ) : (
-                      formatCurrency(line.costPerKgGbp)
+                      <span className="text-zinc-700 dark:text-zinc-300">
+                        {formatCurrency(line.costPerKgGbp)}
+                      </span>
                     )}
                   </td>
-                  <td style={{ textAlign: "right", padding: "0.5rem" }}>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {res ? formatCurrency(res.costInProduct) : "—"}
-                  </td>
-                  <td style={{ textAlign: "center", padding: "0.5rem" }}>
-                    {editingCostLineId === line.lineId ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => handleCostEditSave(line.lineId)}
-                          style={{ marginRight: 4, fontSize: "0.85rem" }}
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCostEditCancel}
-                          style={{ fontSize: "0.85rem" }}
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleCostEditStart(line.lineId, line.costPerKgGbp)}
-                        style={{ fontSize: "0.85rem" }}
-                      >
-                        Edit
-                      </button>
-                    )}
                   </td>
                 </tr>
               );
@@ -390,29 +430,32 @@ export default function RecipeCalculator({ recipe }: Props) {
         </table>
       </div>
 
-      <div
-        style={{
-          marginTop: "1rem",
-          padding: "0.75rem",
-          background: "var(--background)",
-          border: "1px solid var(--foreground)",
-          borderRadius: 4,
-        }}
-      >
-        <p>
-          <strong>Total grams:</strong> {formatNumber(result.totalGrams, { maxDecimals: 2 })}{" "}
-          (batch: {formatNumber(batchGrams, { maxDecimals: 2 })} g)
-        </p>
-        <p>
-          <strong>Total CFU:</strong> {formatCfu(result.totalCfu)}
-        </p>
-        <p>
-          <strong>Total cost:</strong> {formatCurrency(result.totalCost)}
-        </p>
-        <p>
-          <strong>Cost per kg:</strong> {formatCurrency(result.costPerKg)}
-        </p>
-        <p style={{ marginTop: "0.75rem" }}>
+      {/* Totals + PDF */}
+      <div className="rounded-xl border-2 border-zinc-200 bg-zinc-50/80 p-6 shadow-md dark:border-zinc-600 dark:bg-zinc-800/50">
+        <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+          Summary
+        </h2>
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total grams</dt>
+            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+              {formatNumber(result.totalGrams, { maxDecimals: 2 })} g
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total CFU</dt>
+            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatCfu(result.totalCfu)}</dd>
+          </div>
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total cost</dt>
+            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(result.totalCost)}</dd>
+          </div>
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per kg</dt>
+            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(result.costPerKg)}</dd>
+          </div>
+        </dl>
+        <div className="mt-6">
           <button
             type="button"
             onClick={() =>
@@ -423,11 +466,11 @@ export default function RecipeCalculator({ recipe }: Props) {
                 costPerKg: result.costPerKg,
               })
             }
-            style={{ padding: "0.5rem 1rem", fontSize: "1rem" }}
+            className="rounded-lg bg-zinc-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
           >
             Generate PDF
           </button>
-        </p>
+        </div>
       </div>
     </div>
   );

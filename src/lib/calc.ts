@@ -54,6 +54,7 @@ export function calculate(
   selectedCfuByLineId: Map<number, number> // lineId -> cfuOptionId
 ): { results: LineResult[]; totalGrams: number; totalCfu: number; totalCost: number; costPerKg: number; error?: string } {
   const scale = defaultBatchGrams > 0 ? totalBatchGrams / defaultBatchGrams : 1;
+  const scaleFactor = scale; // same: newBatchGrams / baseBatchGrams
 
   const results: LineResult[] = [];
   const bacteriaGrams: number[] = [];
@@ -61,21 +62,22 @@ export function calculate(
   const ratioLines: LineInput[] = [];
   let remainderLine: LineInput | null = null;
 
-  // 1) Bacteria grams and fixed filler grams
+  // 1) Bacteria grams (targets scale with batch) and fixed filler grams
   for (const line of lines) {
     if (line.isBacteria) {
       const optId = selectedCfuByLineId.get(line.lineId) ?? getDefaultCfuOption(line.cfuOptions)?.id;
       const opt = line.cfuOptions.find((o) => o.id === optId) ?? getDefaultCfuOption(line.cfuOptions);
       const cfuPerG = opt ? opt.cfu_per_gram : 0;
+      const scaledTargetTotalCfu = line.targetTotalCfu * scaleFactor;
       let grams = 0;
       let warning: string | undefined;
       if (cfuPerG <= 0) {
         warning = "CFU/g is 0";
       } else {
-        grams = line.targetTotalCfu / cfuPerG;
+        grams = scaledTargetTotalCfu / cfuPerG;
       }
       bacteriaGrams.push(grams);
-      const totalCfu = grams * cfuPerG;
+      const totalCfu = scaledTargetTotalCfu;
       const finalCfuPerGram = totalBatchGrams > 0 ? totalCfu / totalBatchGrams : 0;
       const costInProduct = (line.costPerKgGbp * grams) / 1000;
       const percent = totalBatchGrams > 0 ? grams / totalBatchGrams : 0;
@@ -87,7 +89,7 @@ export function calculate(
         ingredientCode: line.ingredientCode,
         isBacteria: true,
         costPerKgGbp: line.costPerKgGbp,
-        targetTotalCfu: line.targetTotalCfu,
+        targetTotalCfu: scaledTargetTotalCfu,
         grams,
         percent,
         cfuPerGram: cfuPerG,

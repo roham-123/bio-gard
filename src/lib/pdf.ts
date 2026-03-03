@@ -19,12 +19,13 @@ export function generateRecipePdf(
   doc.setFontSize(12);
   doc.text(`Recipe: ${recipeName}`, 14, y);
   y += 6;
-  doc.text(`Batch size: ${formatNumber(batchGrams, { maxDecimals: 2 })} g`, 14, y);
+  doc.text(`Batch size: ${formatNumber(batchGrams, { maxDecimals: 2 })} g (${formatNumber(batchGrams / 1000, { maxDecimals: 2 })} kg)`, 14, y);
   y += 10;
 
   const headers = [
     "Ingredient",
     "g",
+    "kg",
     "%",
     "CFU/g",
     "Target CFU",
@@ -36,6 +37,7 @@ export function generateRecipePdf(
   const rows = results.map((r) => [
     (r.ingredientCode ? `[${r.ingredientCode}] ` : "") + r.ingredientName,
     formatNumber(r.grams, { maxDecimals: 2 }),
+    formatNumber(r.grams / 1000, { maxDecimals: 4 }),
     formatPercent(r.percent),
     r.isBacteria ? formatCfu(r.cfuPerGram) : "—",
     r.isBacteria ? formatCfu(r.targetTotalCfu) : "—",
