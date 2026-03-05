@@ -21,8 +21,8 @@ export default function RecipeCalculator({ recipe }: Props) {
   const defaultBatchGrams = Number(recipe.default_batch_grams);
   const [batchGrams, setBatchGrams] = useState(defaultBatchGrams);
   const [batchInput, setBatchInput] = useState(String(defaultBatchGrams / 1000));
-  const [units, setUnits] = useState(1);
-  const [unitsInput, setUnitsInput] = useState("1");
+  const [kgPerUnit, setKgPerUnit] = useState(1);
+  const [kgPerUnitInput, setKgPerUnitInput] = useState("1");
   const [selectedCfu, setSelectedCfu] = useState<Map<number, number>>(new Map());
   const [addCfuLineId, setAddCfuLineId] = useState<number | null>(null);
   const [newCfuLabel, setNewCfuLabel] = useState("");
@@ -45,15 +45,14 @@ export default function RecipeCalculator({ recipe }: Props) {
 
   const handleBatchBlur = () => syncBatchFromInput();
 
-  const syncUnitsFromInput = useCallback(() => {
-    const parsed = parseScientific(unitsInput);
-    if (!Number.isNaN(parsed) && parsed >= 1) {
-      const n = Math.max(1, Math.floor(parsed));
-      setUnits(n);
-      setUnitsInput(String(n));
+  const syncKgPerUnitFromInput = useCallback(() => {
+    const parsed = parseScientific(kgPerUnitInput);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      setKgPerUnit(parsed);
+      setKgPerUnitInput(String(parsed));
     }
-  }, [unitsInput]);
-  const handleUnitsBlur = () => syncUnitsFromInput();
+  }, [kgPerUnitInput]);
+  const handleKgPerUnitBlur = () => syncKgPerUnitFromInput();
 
   const selectedCfuMap = useMemo(() => {
     const m = new Map<number, number>();
@@ -83,6 +82,11 @@ export default function RecipeCalculator({ recipe }: Props) {
         0
       ),
     [result.results]
+  );
+
+  const units = useMemo(
+    () => (kgPerUnit > 0 ? batchGrams / 1000 / kgPerUnit : 0),
+    [batchGrams, kgPerUnit]
   );
 
   const handleAddCfuOption = useCallback(
@@ -211,20 +215,19 @@ export default function RecipeCalculator({ recipe }: Props) {
           </div>
           <div className="flex items-center gap-2">
             <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-              Units
+              kg per unit
             </label>
             <input
               type="text"
-              value={unitsInput}
-              onChange={(e) => setUnitsInput(e.target.value)}
-              onBlur={handleUnitsBlur}
-              onKeyDown={(e) => e.key === "Enter" && syncUnitsFromInput()}
-              className="w-20 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium tabular-nums shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+              value={kgPerUnitInput}
+              onChange={(e) => setKgPerUnitInput(e.target.value)}
+              onBlur={handleKgPerUnitBlur}
+              onKeyDown={(e) => e.key === "Enter" && syncKgPerUnitFromInput()}
+              className="w-24 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium tabular-nums shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
             />
-            {units > 0 && batchGrams > 0 && (
+            {kgPerUnit > 0 && batchGrams > 0 && (
               <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                = {formatNumber(batchGrams / 1000 / units, { maxDecimals: 2 })} kg (
-                {formatNumber(batchGrams / units, { maxDecimals: 2 })} g) per unit
+                ≈ {formatNumber(units, { maxDecimals: 2 })} units
               </span>
             )}
           </div>
@@ -284,7 +287,6 @@ export default function RecipeCalculator({ recipe }: Props) {
               <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">%</th>
               <th className="px-4 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Stock CFU/g</th>
               <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Target CFU</th>
-              <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Total CFU</th>
               <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Final CFU/g</th>
               <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/kg</th>
               <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost</th>
@@ -439,9 +441,6 @@ export default function RecipeCalculator({ recipe }: Props) {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {isBacteria && res ? formatCfu(res.targetTotalCfu) : "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {res ? formatCfu(res.totalCfu) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {res && res.isBacteria ? formatCfu(res.finalCfuPerGram) : "—"}
