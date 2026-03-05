@@ -20,7 +20,9 @@ type Props = {
 export default function RecipeCalculator({ recipe }: Props) {
   const defaultBatchGrams = Number(recipe.default_batch_grams);
   const [batchGrams, setBatchGrams] = useState(defaultBatchGrams);
-  const [batchInput, setBatchInput] = useState(String(defaultBatchGrams));
+  const [batchInput, setBatchInput] = useState(String(defaultBatchGrams / 1000));
+  const [units, setUnits] = useState(1);
+  const [unitsInput, setUnitsInput] = useState("1");
   const [selectedCfu, setSelectedCfu] = useState<Map<number, number>>(new Map());
   const [addCfuLineId, setAddCfuLineId] = useState<number | null>(null);
   const [newCfuLabel, setNewCfuLabel] = useState("");
@@ -33,17 +35,25 @@ export default function RecipeCalculator({ recipe }: Props) {
   );
 
   const syncBatchFromInput = useCallback(() => {
-    const parsed = parseScientific(batchInput);
-    if (!Number.isNaN(parsed) && parsed > 0) {
-      setBatchGrams(parsed);
-      setBatchInput(String(parsed));
+    const parsedKg = parseScientific(batchInput);
+    if (!Number.isNaN(parsedKg) && parsedKg > 0) {
+      const grams = parsedKg * 1000;
+      setBatchGrams(grams);
+      setBatchInput(String(parsedKg));
     }
   }, [batchInput]);
 
   const handleBatchBlur = () => syncBatchFromInput();
-  const handleBatchKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") syncBatchFromInput();
-  };
+
+  const syncUnitsFromInput = useCallback(() => {
+    const parsed = parseScientific(unitsInput);
+    if (!Number.isNaN(parsed) && parsed >= 1) {
+      const n = Math.max(1, Math.floor(parsed));
+      setUnits(n);
+      setUnitsInput(String(n));
+    }
+  }, [unitsInput]);
+  const handleUnitsBlur = () => syncUnitsFromInput();
 
   const selectedCfuMap = useMemo(() => {
     const m = new Map<number, number>();
@@ -65,6 +75,15 @@ export default function RecipeCalculator({ recipe }: Props) {
       selectedCfuMap
     );
   }, [batchGrams, defaultBatchGrams, lineInputs, selectedCfuMap]);
+
+  const totalFinalCfuPerGram = useMemo(
+    () =>
+      result.results.reduce(
+        (sum, r) => sum + (r.isBacteria && typeof r.finalCfuPerGram === "number" ? r.finalCfuPerGram : 0),
+        0
+      ),
+    [result.results]
+  );
 
   const handleAddCfuOption = useCallback(
     async (lineId: number, ingredientId: number) => {
@@ -174,7 +193,7 @@ export default function RecipeCalculator({ recipe }: Props) {
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
             <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-              Batch size (g)
+              Batch size (kg)
             </label>
             <input
               type="text"
@@ -184,9 +203,28 @@ export default function RecipeCalculator({ recipe }: Props) {
               onKeyDown={(e) => e.key === "Enter" && syncBatchFromInput()}
               className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium tabular-nums shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
             />
-            {batchGrams >= 1000 && (
+            {batchGrams > 0 && (
               <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                = {formatNumber(batchGrams / 1000)} kg
+                = {formatNumber(batchGrams, { maxDecimals: 2 })} g
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+              Units
+            </label>
+            <input
+              type="text"
+              value={unitsInput}
+              onChange={(e) => setUnitsInput(e.target.value)}
+              onBlur={handleUnitsBlur}
+              onKeyDown={(e) => e.key === "Enter" && syncUnitsFromInput()}
+              className="w-20 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium tabular-nums shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+            />
+            {units > 0 && batchGrams > 0 && (
+              <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                = {formatNumber(batchGrams / 1000 / units, { maxDecimals: 2 })} kg (
+                {formatNumber(batchGrams / units, { maxDecimals: 2 })} g) per unit
               </span>
             )}
           </div>
@@ -242,8 +280,9 @@ export default function RecipeCalculator({ recipe }: Props) {
               </th>
               <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">g</th>
               <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">kg</th>
+              <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">g/unit</th>
               <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">%</th>
-              <th className="px-4 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">CFU/g</th>
+              <th className="px-4 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Stock CFU/g</th>
               <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Target CFU</th>
               <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Total CFU</th>
               <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Final CFU/g</th>
@@ -285,6 +324,9 @@ export default function RecipeCalculator({ recipe }: Props) {
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {res ? formatNumber(res.grams / 1000, { maxDecimals: 4 }) : "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                    {res && units > 0 ? formatNumber(res.grams / units, { maxDecimals: 2 }) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {res ? formatPercent(res.percent) : "—"}
@@ -439,12 +481,15 @@ export default function RecipeCalculator({ recipe }: Props) {
           <div className="flex justify-between gap-4 sm:block">
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total grams</dt>
             <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-              {formatNumber(result.totalGrams, { maxDecimals: 2 })} g
+              {formatNumber(result.totalGrams / 1000, { maxDecimals: 2 })} kg (
+              {formatNumber(result.totalGrams, { maxDecimals: 2 })} g)
             </dd>
           </div>
           <div className="flex justify-between gap-4 sm:block">
-            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total CFU</dt>
-            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatCfu(result.totalCfu)}</dd>
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total final CFU/g</dt>
+            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+              {formatCfu(totalFinalCfuPerGram)}
+            </dd>
           </div>
           <div className="flex justify-between gap-4 sm:block">
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total cost</dt>
@@ -454,16 +499,23 @@ export default function RecipeCalculator({ recipe }: Props) {
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per kg</dt>
             <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(result.costPerKg)}</dd>
           </div>
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per unit</dt>
+            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+              {units > 0 ? formatCurrency(result.totalCost / units) : "—"}
+            </dd>
+          </div>
         </dl>
         <div className="mt-6">
           <button
             type="button"
             onClick={() =>
-              generateRecipePdf(recipe.name, batchGrams, result.results, {
+              generateRecipePdf(recipe.name, batchGrams, units, result.results, {
                 totalGrams: result.totalGrams,
                 totalCfu: result.totalCfu,
                 totalCost: result.totalCost,
                 costPerKg: result.costPerKg,
+                costPerUnit: units > 0 ? result.totalCost / units : undefined,
               })
             }
             className="rounded-lg bg-zinc-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"

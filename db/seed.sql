@@ -18,7 +18,7 @@ INSERT INTO ingredients (code, name, is_bacteria, cost_per_kg_gbp) VALUES
 ('PRO0235', 'PRO0235', TRUE, 71.00),
 ('PRO-1056', 'Trichoderma Reesi 2E10', TRUE, 101.54),
 ('PRO-1055', 'Trichoderma Haziarnim 2E10', TRUE, 100.00),
-(NULL, 'Filler FUN TRICH HARZIANUM FUN 003', FALSE, 0),
+(NULL, 'Filler FUN TRICH HARZIANUM FUN 003', TRUE, 0),
 (NULL, 'Filler MultiDextrose 60% 40% Soda', FALSE, 1.81),
 (NULL, 'Filler Soda 40% Soda', FALSE, 0.58),
 (NULL, 'Seaweed / Fulvic acid', FALSE, 10.00)
@@ -69,7 +69,7 @@ FROM (VALUES
   (4, 'PRO0235',                       2.95e13,  71.00, 295,  'fixed',    0),
   (5, 'Trichoderma Reesi 2E10',         1.20e11,  101.54, 6, 'fixed', 0),
   (6, 'Trichoderma Haziarnim 2E10',     1.20e11,  100.00, 6, 'fixed', 0),
-  (7, 'Filler FUN TRICH HARZIANUM FUN 003', 0, 0, 135, 'fixed', 0),
+  (7, 'Filler FUN TRICH HARZIANUM FUN 003', 1.35e11, 0, 135, 'fixed', 0),
   (8, 'Filler MultiDextrose 60% 40% Soda', 0, 1.81, 5580, 'ratio', 0.60),
   (9, 'Filler Soda 40% Soda',              0, 0.58, 3720, 'ratio', 0.40),
   (10,'Seaweed / Fulvic acid',            0, 10.00, 46, 'fixed', 0)
