@@ -1,92 +1,118 @@
 Bio Gard Recipe Calculator Prototype Manual
 
 Tech
-	•	Next.js (App Router) + TypeScript
-	•	Postgres
-	•	pg (node-postgres) for DB access
-	•	Plain SQL migrations: db/schema.sql then db/seed.sql
+• Next.js (App Router) + TypeScript
+• Postgres
+• pg (node-postgres) for DB access
+• Plain SQL migrations: db/schema.sql then db/seed.sql
 
 ⸻
 
 Goal
-	•	User selects a recipe.
-	•	User edits batch size in kg (internally stored as grams; UI also shows the g equivalent).
-	•	User sets the number of units; the app derives g per unit for each ingredient and for the whole batch.
-	•	User selects “CFU per gram” for ingredients that have CFU, and can add new CFU options per ingredient (with optional price).
-	•	User can edit cost/kg per line (per recipe) and optionally associate a price with each CFU option which can overwrite that line’s cost/kg.
-	•	App recalculates grams, g per unit, %, CFU outputs, costs, and totals immediately.
-	•	User can generate a PDF of the current recipe view (including kg, g per unit, CFU columns, and costs).
-	•	Recipe should scale correctly when batch size changes.
+• User selects a recipe.
+• User edits batch size in kg (internally stored as grams; UI also shows the g equivalent).
+• User sets kg per unit; the app derives number of units and g per unit for each ingredient.
+• User selects stock option (CFU/g + optional price) for ingredients that have CFU, and can add new stock options per ingredient.
+• User can edit cost/kg per line (per recipe); selecting a stock option with a price overwrites that line's cost/kg.
+• App recalculates grams, g per unit, %, CFU outputs, costs, and totals immediately.
+• User can generate a PDF of the current recipe view (including kg, g per unit, CFU columns, and costs).
+• Recipe should scale correctly when batch size changes.
 
 ⸻
 
 Data model rules
 
+Ingredient is the master material
+
+There is exactly one row per real material in the ingredients table (UNIQUE on name).
+Do NOT create duplicate rows for the same ingredient with different costs or strengths.
+Different costs and CFU strengths are handled by stock options and per-recipe line overrides.
+
+Each ingredient has:
+• code (optional, e.g. PRO0235)
+• name (unique across the whole system)
+• is_bacteria: boolean (must be consistent with the "has CFU" rule below)
+• cost_per_kg_gbp: fallback default cost (used only when recipe_lines.cost_per_kg_gbp is NULL)
+
 Each recipe has:
-	•	default_batch_grams
-	•	This is the batch size the recipe targets were originally defined for (from the Excel sheet).
+• default_batch_grams — the batch size the recipe targets were originally defined for.
 
-Each recipe line has:
-	•	ingredient name/code
-	•	cost_per_kg_gbp (per‑recipe override; editable in the UI)
-	•	target_total_cfu (the “Total” CFU value from Excel for that line at default batch size)
-	•	default_grams (the Excel grams at default batch size)
-	•	filler allocation fields:
-		•	filler_mode: fixed / ratio / remainder
-		•	filler_ratio only used for ratio
+Each recipe line stores the permanent formula definition:
+• ingredient_id — which ingredient is used
+• target_total_cfu — the target CFU for that ingredient at default batch size
+• default_grams — the Excel grams at default batch size
+• filler_mode: fixed / ratio / remainder
+• filler_ratio (only used for ratio)
+• cost_per_kg_gbp — per-recipe cost override (editable in the UI); always set in seed data
 
-Each ingredient has CFU options:
-	•	cfu_per_gram values stored in ingredient_cfu_options
-	•	one option is default
-	•	users can add new options
-	•	each option can have an optional price_gbp (used to update that recipe line’s cost_per_kg_gbp when selected)
+Stock options (ingredient_cfu_options)
 
-Ingredients also have:
-	•	is_bacteria: boolean flag for classification (must be consistent with the “has CFU” rule below)
-	•	cost_per_kg_gbp: default cost; recipe_lines.cost_per_kg_gbp can override this per recipe
+Each stock option represents a selectable lot/version of an ingredient:
+• label — descriptive name (e.g. "Default", "4E9", "Option B")
+• cfu_per_gram — the strength of this lot
+• price_gbp — optional price; when the user selects this option, it overwrites the recipe line's cost_per_kg_gbp
+• is_default — whether this is the initially-selected option
 
-Important classification rule (new)
+Stock options belong to the ingredient, NOT to a specific recipe.
+All recipes that use an ingredient see all of its stock options.
 
-Do not rely solely on ingredient name (e.g. containing “Filler”).
+Cost precedence (at calculation time): 1. Selected stock option price_gbp (if present) 2. recipe_lines.cost_per_kg_gbp (if present) 3. ingredients.cost_per_kg_gbp (fallback)
 
-A line is treated as a “CFU ingredient” (bacteria / biological line) if:
-	•	it has a CFU value:
-		•	target_total_cfu > 0, or
-		•	at least one CFU option with cfu_per_gram > 0
-	•	if it has any CFU, it must not be treated as a filler.
+Recipes must NOT permanently store a lot/stock option as part of the formula.
+The selected stock option is chosen at calculation time.
+(Later, saved production batches can store the selected option.)
 
-Otherwise it’s treated as a non-CFU filler.
+Important classification rule
 
-This handles cases like “Filler FUN TRICH HARZIANUM FUN 003” which has CFU and must be treated as bacteria even though its name contains “Filler”.
+Do not rely solely on ingredient name (e.g. containing "Filler").
+
+A line is treated as a "CFU ingredient" (bacteria / biological line) if:
+• it has a CFU value:
+• target_total_cfu > 0, or
+• at least one stock option with cfu_per_gram > 0
+• if it has any CFU, it must not be treated as a filler.
+
+Otherwise it's treated as a non-CFU filler.
+
+This handles cases like "Filler FUN TRICH HARZIANUM FUN 003" which has CFU and must be treated as bacteria even though its name contains "Filler".
+
+Seed / recipe creation rules
+
+When adding new recipes:
+• reuse existing ingredient rows where possible
+• do NOT create duplicate ingredient rows just because CFU or price differ
+• instead add stock options under the ingredient
+• set cost_per_kg_gbp on the recipe_line for that recipe's cost context
+• recipe_lines JOIN ingredients by name only (not by cost)
 
 ⸻
 
 Calculation rules (no rounding)
 
 Let:
-	•	baseBatchGrams = recipe.default_batch_grams
-	•	newBatchGrams = total_batch_grams (user input)
-	•	scaleFactor = newBatchGrams / baseBatchGrams
+• baseBatchGrams = recipe.default_batch_grams
+• newBatchGrams = total_batch_grams (user input)
+• scaleFactor = newBatchGrams / baseBatchGrams
 
 Step 1: compute CFU-ingredient lines (bacteria / biological lines)
 
-For each line that is treated as “CFU ingredient”:
-	•	cfu_per_g = selected option cfu_per_gram (default selected initially)
-	•	scaled_target_total_cfu = line.target_total_cfu * scaleFactor
+For each line that is treated as "CFU ingredient":
+• cfu_per_g = selected stock option cfu_per_gram (default selected initially)
+• scaled_target_total_cfu = line.target_total_cfu \* scaleFactor
 
 If cfu_per_g <= 0:
-	•	set grams = 0
-	•	set total_cfu = 0
-	•	show a warning for that row (cannot compute without CFU/g)
+• set grams = 0
+• set total_cfu = 0
+• show a warning for that row (cannot compute without CFU/g)
 
 Else:
-	•	grams = scaled_target_total_cfu / cfu_per_g
-	•	total_cfu = grams * cfu_per_g (≈ scaled_target_total_cfu)
-	•	percent = grams / newBatchGrams
-	•	final_cfu_per_g = total_cfu / newBatchGrams
-	•	cost_in_product = cost_per_kg_gbp * grams / 1000
+• grams = scaled_target_total_cfu / cfu_per_g
+• total_cfu = grams _ cfu_per_g (≈ scaled_target_total_cfu)
+• percent = grams / newBatchGrams
+• final_cfu_per_g = total_cfu / newBatchGrams
+• cost_in_product = cost_per_kg_gbp _ grams / 1000
 
-UI should display scaled_target_total_cfu in the “Target CFU” column (not the base value).
+UI should display scaled_target_total_cfu in the "Target CFU" column (not the base value).
 
 DB values remain unchanged.
 
@@ -94,99 +120,96 @@ DB values remain unchanged.
 
 Step 2: compute fixed fillers (non-CFU)
 
-For lines with filler_mode = 'fixed' and not treated as “CFU ingredient”:
-	•	scale grams with batch:
-	•	grams = line.default_grams * scaleFactor
-	•	percent = grams / newBatchGrams
-	•	cost_in_product = cost_per_kg_gbp * grams / 1000
-	•	CFU columns remain 0/blank.
+For lines with filler_mode = 'fixed' and not treated as "CFU ingredient":
+• scale grams with batch:
+• grams = line.default_grams _ scaleFactor
+• percent = grams / newBatchGrams
+• cost_in_product = cost_per_kg_gbp _ grams / 1000
+• CFU columns remain 0/blank.
 
 ⸻
 
-Step 3: allocate remaining grams to ratio + remainder fillers
-	1.	remaining = newBatchGrams - sum(CFU ingredient grams) - sum(fixed filler grams)
-	2.	If remaining < 0:
+Step 3: allocate remaining grams to ratio + remainder fillers 1. remaining = newBatchGrams - sum(CFU ingredient grams) - sum(fixed filler grams) 2. If remaining < 0:
 
-	•	show banner: “Batch too small for targets”
-	•	still render numbers, but highlight error.
+    •	show banner: "Batch too small for targets"
+    •	still render numbers, but highlight error.
 
-	3.	Ratio fillers:
+    3.	Ratio fillers:
 
-	•	let ratioSum = sum(filler_ratio) across all filler_mode='ratio' lines
-	•	for each ratio filler:
-	•	grams = remaining * (filler_ratio / ratioSum)
-	•	percent = grams / newBatchGrams
-	•	cost_in_product = cost_per_kg_gbp * grams / 1000
+    •	let ratioSum = sum(filler_ratio) across all filler_mode='ratio' lines
+    •	for each ratio filler:
+    •	grams = remaining * (filler_ratio / ratioSum)
+    •	percent = grams / newBatchGrams
+    •	cost_in_product = cost_per_kg_gbp * grams / 1000
 
-	4.	Remainder filler:
+    4.	Remainder filler:
 
-	•	grams = remaining - sum(ratio filler grams)
-	•	(assume max 1 remainder filler; if multiple exist, put remainder into the last by sort_order)
-	•	percent/cost same as above.
+    •	grams = remaining - sum(ratio filler grams)
+    •	(assume max 1 remainder filler; if multiple exist, put remainder into the last by sort_order)
+    •	percent/cost same as above.
 
 ⸻
 
 Totals to display
-	•	sum grams (should equal newBatchGrams when remaining ≥ 0)
-	•	total CFU (sum of total_cfu for CFU ingredients) – used internally and in the PDF summary
-	•	total final CFU/g (sum of final_cfu_per_g across bacteria lines) – shown in the on‑screen Summary box
-	•	total cost (sum of cost_in_product)
-	•	cost per kg = total_cost / (newBatchGrams / 1000)
-	•	cost per unit = total_cost / units (if units > 0)
+• sum grams (should equal newBatchGrams when remaining ≥ 0)
+• total CFU (sum of total_cfu for CFU ingredients) – used internally and in the PDF summary
+• total final CFU/g (sum of final_cfu_per_g across bacteria lines) – shown in the on-screen Summary box
+• total cost (sum of cost_in_product)
+• cost per kg = total_cost / (newBatchGrams / 1000)
+• cost per unit = total_cost / units (if units > 0)
 
 ⸻
 
 UI pages
 
 /recipes
-	•	list recipes
-	•	click to open /recipes/[id]
+• list recipes
+• click to open /recipes/[id]
 
 /recipes/[id]
-	•	batch size input (kg; UI shows equivalent g)
-	•	units input (integer ≥ 1); UI shows derived kg and g per unit for the total batch
-	•	ingredient table columns:
-		•	ingredient
-		•	grams, kg, g per unit, %
-		•	CFU/g selector (only for lines treated as CFU ingredient; read‑only label when not editing)
-		•	Target CFU (show scaled target)
-		•	Total CFU
-		•	Final CFU/g
-		•	Cost/kg (editable per line when in “Edit” mode)
-		•	Cost in product
-	•	add CFU option UI:
-		•	label + numeric CFU/g
-		•	optional price (£)
-		•	add option and set selected
-	•	edit mode:
-		•	toggle to edit line cost/kg and CFU options
-		•	saving persists updated costs and any newly added CFU options
-	•	summary box:
-		•	Total grams (kg and g)
-		•	Total final CFU/g (sum of final CFU/g column)
-		•	Total cost
-		•	Cost per kg
-		•	Cost per unit
-	•	PDF generation:
-		•	includes batch size, units, and ingredients table
-		•	table shows Ingredient, g, kg, g per unit, %, CFU/g, Target CFU, Total CFU, Final CFU/g, Cost/kg, Cost in product
+• batch size input (kg; UI shows equivalent g)
+• kg per unit input; UI shows derived number of units (≈ N units)
+• ingredient table columns:
+• ingredient
+• grams, kg, g per unit, %
+• Stock CFU/g selector (only for lines treated as CFU ingredient; read-only label when not editing)
+• Target CFU (show scaled target)
+• Final CFU/g
+• Cost/kg (editable per line when in "Edit" mode)
+• Cost in product
+• add stock option UI:
+• label + numeric CFU/g
+• optional price (£)
+• add option and set selected
+• edit mode:
+• toggle to edit line cost/kg and stock options
+• saving persists updated costs and any newly added stock options
+• summary box:
+• Total grams (kg and g)
+• Total final CFU/g (sum of final CFU/g column)
+• Total cost
+• Cost per kg
+• Cost per unit
+• PDF generation:
+• includes batch size, units, and ingredients table
+• table shows Ingredient, g, kg, g per unit, %, Stock CFU/g, Target CFU, Final CFU/g, Cost/kg, Cost in product
 
 ⸻
 
 Implementation notes
-	•	Keep all calc logic in one module (e.g. src/lib/calc.ts)
-	•	DB access in src/lib/db.ts using pg.Pool
-	•	Server functions:
-		•	getRecipes()
-		•	getRecipe(recipeId) (recipe + lines + ingredients + cfu options)
-		•	addCfuOption(ingredientId, label, cfuPerGram, priceGbp?) (default=false)
-		•	deleteCfuOption(optionId)
-		•	updateRecipeLineCost(recipeLineId, costPerKgGbp)
-	•	PDF generation in src/lib/pdf.ts using jsPDF + jsPDF‑autotable (mirrors main table columns and summary)
+• Keep all calc logic in one module (e.g. src/lib/calc.ts)
+• DB access in src/lib/db.ts using pg.Pool
+• Server functions:
+• getRecipes()
+• getRecipe(recipeId) (recipe + lines + ingredients + stock options)
+• addCfuOption(ingredientId, label, cfuPerGram, priceGbp?) (default=false)
+• deleteCfuOption(optionId)
+• updateRecipeLineCost(recipeLineId, costPerKgGbp)
+• PDF generation in src/lib/pdf.ts using jsPDF + jsPDF-autotable (mirrors main table columns and summary)
 
 ⸻
 
 Number formatting
-	•	accept and parse scientific notation inputs like 1e11 / 1.00E+11
-	•	display CFU numbers in readable scientific notation (e.g. 1.00E+11)
-	•	store as numeric in Postgres
+• accept and parse scientific notation inputs like 1e11 / 1.00E+11
+• display CFU numbers in readable scientific notation (e.g. 1.00E+11)
+• store as numeric in Postgres

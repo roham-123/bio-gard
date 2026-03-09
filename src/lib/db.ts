@@ -38,6 +38,8 @@ export type RecipeLine = {
   filler_ratio: number;
   /** Effective cost (line override or ingredient); used for calc and display */
   cost_per_kg_gbp: number;
+  /** Optional per-recipe default CFU option for this line */
+  default_cfu_option_id: number | null;
 };
 
 export type RecipeWithLines = Recipe & {
@@ -74,9 +76,25 @@ export async function getRecipe(recipeId: number): Promise<RecipeWithLines | nul
     if (!recipe) return null;
 
     const linesResult = await client.query<
-      RecipeLine & { line_cost: string | null; ing_id: number; ing_code: string | null; ing_name: string; ing_is_bacteria: boolean; ing_cost: number }
+      RecipeLine & {
+        line_cost: string | null;
+        ing_id: number;
+        ing_code: string | null;
+        ing_name: string;
+        ing_is_bacteria: boolean;
+        ing_cost: number;
+      }
     >(
-      `SELECT rl.id, rl.recipe_id, rl.ingredient_id, rl.sort_order, rl.target_total_cfu, rl.default_grams, rl.filler_mode, rl.filler_ratio, rl.cost_per_kg_gbp AS line_cost,
+      `SELECT rl.id,
+              rl.recipe_id,
+              rl.ingredient_id,
+              rl.sort_order,
+              rl.target_total_cfu,
+              rl.default_grams,
+              rl.filler_mode,
+              rl.filler_ratio,
+              rl.cost_per_kg_gbp AS line_cost,
+              rl.default_cfu_option_id,
               i.id AS ing_id, i.code AS ing_code, i.name AS ing_name, i.is_bacteria AS ing_is_bacteria, i.cost_per_kg_gbp AS ing_cost
        FROM recipe_lines rl
        JOIN ingredients i ON i.id = rl.ingredient_id
@@ -120,6 +138,7 @@ export async function getRecipe(recipeId: number): Promise<RecipeWithLines | nul
         filler_mode: r.filler_mode,
         filler_ratio: Number(r.filler_ratio),
         cost_per_kg_gbp: lineCost ?? ingCost,
+        default_cfu_option_id: r.default_cfu_option_id ?? null,
         ingredient: {
           id: r.ing_id,
           code: r.ing_code,
@@ -137,6 +156,22 @@ export async function getRecipe(recipeId: number): Promise<RecipeWithLines | nul
       default_batch_grams: Number(recipe.default_batch_grams),
       lines,
     };
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateRecipeLineDefaultCfuOption(
+  recipeLineId: number,
+  optionId: number | null
+): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query(
+      "UPDATE recipe_lines SET default_cfu_option_id = $1 WHERE id = $2",
+      [optionId, recipeLineId]
+    );
+    return (r.rowCount ?? 0) > 0;
   } finally {
     client.release();
   }

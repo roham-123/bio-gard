@@ -16,6 +16,8 @@ export type LineInput = {
   sortOrder: number;
   /** Selected CFU option id (for bacteria); undefined = use default option */
   selectedCfuOptionId?: number;
+  /** Recipe-line-level default CFU option id (overrides ingredient-wide default) */
+  defaultCfuOptionId?: number | null;
   cfuOptions: { id: number; label: string; cfu_per_gram: number; is_default: boolean; price_gbp: number | null }[];
 };
 
@@ -40,8 +42,13 @@ export type LineResult = {
 };
 
 export function getDefaultCfuOption(
-  options: LineInput["cfuOptions"]
+  options: LineInput["cfuOptions"],
+  preferredId?: number | null
 ): { id: number; cfu_per_gram: number } | undefined {
+  if (preferredId != null) {
+    const p = options.find((o) => o.id === preferredId);
+    if (p) return { id: p.id, cfu_per_gram: p.cfu_per_gram };
+  }
   const d = options.find((o) => o.is_default);
   if (d) return { id: d.id, cfu_per_gram: d.cfu_per_gram };
   return options[0] ? { id: options[0].id, cfu_per_gram: options[0].cfu_per_gram } : undefined;
@@ -66,7 +73,9 @@ export function calculate(
   for (const line of lines) {
     if (line.isBacteria) {
       const optId = selectedCfuByLineId.get(line.lineId) ?? getDefaultCfuOption(line.cfuOptions)?.id;
-      const opt = line.cfuOptions.find((o) => o.id === optId) ?? getDefaultCfuOption(line.cfuOptions);
+      const opt =
+        line.cfuOptions.find((o) => o.id === optId) ??
+        getDefaultCfuOption(line.cfuOptions, line.defaultCfuOptionId);
       const cfuPerG = opt ? opt.cfu_per_gram : 0;
       const scaledTargetTotalCfu = line.targetTotalCfu * scaleFactor;
       let grams = 0;
@@ -223,6 +232,7 @@ export function recipeToLineInputs(recipe: RecipeWithLines): LineInput[] {
     fillerMode: l.filler_mode,
     fillerRatio: Number(l.filler_ratio),
     sortOrder: l.sort_order,
+    defaultCfuOptionId: l.default_cfu_option_id ?? undefined,
     cfuOptions: l.cfu_options.map((o) => ({
       id: o.id,
       label: o.label,

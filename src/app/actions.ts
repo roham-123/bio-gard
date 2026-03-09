@@ -5,6 +5,7 @@ import {
   deleteCfuOption as dalDeleteCfuOption,
   getRecipe as dalGetRecipe,
   updateRecipeLineCost as dalUpdateRecipeLineCost,
+  updateRecipeLineDefaultCfuOption as dalUpdateRecipeLineDefaultCfuOption,
 } from "@/lib/db";
 
 export async function addCfuOption(
@@ -22,6 +23,13 @@ export async function updateRecipeLineCost(recipeLineId: number, costPerKgGbp: n
 
 export async function deleteCfuOption(optionId: number) {
   return dalDeleteCfuOption(optionId);
+}
+
+export async function updateRecipeLineDefaultCfuOption(
+  recipeLineId: number,
+  optionId: number | null
+) {
+  return dalUpdateRecipeLineDefaultCfuOption(recipeLineId, optionId);
 }
 
 export async function getRecipe(recipeId: number) {

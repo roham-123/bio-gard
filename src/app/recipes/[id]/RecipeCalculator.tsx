@@ -11,7 +11,12 @@ import {
 } from "@/lib/calc";
 import { formatNumber, formatCfu, formatPercent, formatCurrency, parseScientific } from "@/lib/format";
 import { generateRecipePdf } from "@/lib/pdf";
-import { addCfuOption, deleteCfuOption, updateRecipeLineCost } from "@/app/actions";
+import {
+  addCfuOption,
+  deleteCfuOption,
+  updateRecipeLineCost,
+  updateRecipeLineDefaultCfuOption,
+} from "@/app/actions";
 
 type Props = {
   recipe: RecipeWithLines;
@@ -59,7 +64,8 @@ export default function RecipeCalculator({ recipe }: Props) {
     lineInputs.forEach((line) => {
       if (line.isBacteria && line.cfuOptions.length) {
         const optId =
-          selectedCfu.get(line.lineId) ?? getDefaultCfuOption(line.cfuOptions)?.id;
+          selectedCfu.get(line.lineId) ??
+          getDefaultCfuOption(line.cfuOptions, line.defaultCfuOptionId)?.id;
         if (optId != null) m.set(line.lineId, optId);
       }
     });
@@ -297,7 +303,8 @@ export default function RecipeCalculator({ recipe }: Props) {
               const res = resultByLineId.get(line.lineId);
               const isBacteria = line.isBacteria;
               const selectedOptId =
-                selectedCfu.get(line.lineId) ?? getDefaultCfuOption(line.cfuOptions)?.id;
+                selectedCfu.get(line.lineId) ??
+                getDefaultCfuOption(line.cfuOptions, line.defaultCfuOptionId)?.id;
               const selectedOpt = line.cfuOptions.find((o) => o.id === selectedOptId);
               const showAddCfu = addCfuLineId === line.lineId;
 
@@ -337,31 +344,61 @@ export default function RecipeCalculator({ recipe }: Props) {
                     {isBacteria ? (
                       isEditingCosts ? (
                         <div className="space-y-1">
-                          <select
-                            value={selectedOptId ?? ""}
-                            onChange={(e) => {
-                              const optionId = Number(e.target.value);
-                              setSelectedCfu((m) => new Map(m).set(line.lineId, optionId));
-                              const opt = line.cfuOptions.find((o) => o.id === optionId);
-                              if (opt?.price_gbp != null) {
-                                setLineInputs((prev) =>
-                                  prev.map((l) =>
-                                    l.lineId === line.lineId
-                                      ? { ...l, costPerKgGbp: opt.price_gbp ?? l.costPerKgGbp }
-                                      : l
-                                  )
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={selectedOptId ?? ""}
+                              onChange={(e) => {
+                                const optionId = Number(e.target.value);
+                                setSelectedCfu((m) => new Map(m).set(line.lineId, optionId));
+                                const opt = line.cfuOptions.find((o) => o.id === optionId);
+                                if (opt?.price_gbp != null) {
+                                  setLineInputs((prev) =>
+                                    prev.map((l) =>
+                                      l.lineId === line.lineId
+                                        ? { ...l, costPerKgGbp: opt.price_gbp ?? l.costPerKgGbp }
+                                        : l
+                                    )
+                                  );
+                                  updateRecipeLineCost(line.lineId, opt.price_gbp);
+                                }
+                              }}
+                              className="min-w-[160px] rounded-lg border border-zinc-300 bg-zinc-50 px-2.5 py-1.5 text-sm font-medium focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100 dark:focus:bg-zinc-600"
+                            >
+                              {line.cfuOptions.map((o) => {
+                                const isDefaultForLine =
+                                  line.defaultCfuOptionId != null
+                                    ? o.id === line.defaultCfuOptionId
+                                    : o.is_default;
+                                const label = isDefaultForLine
+                                  ? `${o.label} (Default)`
+                                  : o.label;
+                                return (
+                                  <option key={o.id} value={o.id}>
+                                    {label} ({formatCfu(o.cfu_per_gram)})
+                                  </option>
                                 );
-                                updateRecipeLineCost(line.lineId, opt.price_gbp);
-                              }
-                            }}
-                            className="min-w-[140px] rounded-lg border border-zinc-300 bg-zinc-50 px-2.5 py-1.5 text-sm font-medium focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100 dark:focus:bg-zinc-600"
-                          >
-                            {line.cfuOptions.map((o) => (
-                              <option key={o.id} value={o.id}>
-                                {o.label} ({formatCfu(o.cfu_per_gram)})
-                              </option>
-                            ))}
-                          </select>
+                              })}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (selectedOptId != null) {
+                                  // Update local state so the "Default" badge moves immediately
+                                  setLineInputs((prev) =>
+                                    prev.map((l) =>
+                                      l.lineId === line.lineId
+                                        ? { ...l, defaultCfuOptionId: selectedOptId }
+                                        : l
+                                    )
+                                  );
+                                  void updateRecipeLineDefaultCfuOption(line.lineId, selectedOptId);
+                                }
+                              }}
+                              className="rounded-lg border border-emerald-500 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-400 dark:bg-emerald-900/30 dark:text-emerald-200"
+                            >
+                              Make default
+                            </button>
+                          </div>
                           <div className="flex flex-wrap items-center gap-1.5">
                             {line.cfuOptions.length > 1 && (
                               <button
@@ -430,9 +467,23 @@ export default function RecipeCalculator({ recipe }: Props) {
                         </div>
                       ) : (
                         <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                          {selectedOpt
-                            ? `${selectedOpt.label} (${formatCfu(selectedOpt.cfu_per_gram)})`
-                            : "—"}
+                          {selectedOpt ? (
+                            <>
+                              {selectedOpt.label}
+                              {(line.defaultCfuOptionId != null
+                                ? selectedOpt.id === line.defaultCfuOptionId
+                                : selectedOpt.is_default) && (
+                                <span className="ml-1 rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                  Default
+                                </span>
+                              )}
+                              <span className="ml-1 text-sm text-zinc-500 dark:text-zinc-400">
+                                ({formatCfu(selectedOpt.cfu_per_gram)})
+                              </span>
+                            </>
+                          ) : (
+                            "—"
+                          )}
                         </span>
                       )
                     ) : (
