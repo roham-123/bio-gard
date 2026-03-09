@@ -39,6 +39,18 @@ export type LineResult = {
   fillerMode: FillerMode;
   fillerRatio: number;
   warning?: string;
+  /** true when this bacteria line contributes to a batch overflow */
+  overflow?: boolean;
+};
+
+export type CalcOutput = {
+  results: LineResult[];
+  totalGrams: number;
+  totalCfu: number;
+  totalCost: number;
+  costPerKg: number;
+  formulaValid: boolean;
+  error?: string;
 };
 
 export function getDefaultCfuOption(
@@ -58,18 +70,17 @@ export function calculate(
   totalBatchGrams: number,
   defaultBatchGrams: number,
   lines: LineInput[],
-  selectedCfuByLineId: Map<number, number> // lineId -> cfuOptionId
-): { results: LineResult[]; totalGrams: number; totalCfu: number; totalCost: number; costPerKg: number; error?: string } {
+  selectedCfuByLineId: Map<number, number>
+): CalcOutput {
   const scale = defaultBatchGrams > 0 ? totalBatchGrams / defaultBatchGrams : 1;
-  const scaleFactor = scale; // same: newBatchGrams / baseBatchGrams
 
   const results: LineResult[] = [];
-  const bacteriaGrams: number[] = [];
+  const bacteriaResults: LineResult[] = [];
   const fixedGrams: number[] = [];
   const ratioLines: LineInput[] = [];
   let remainderLine: LineInput | null = null;
+  const zeroCfuNames: string[] = [];
 
-  // 1) Bacteria grams (targets scale with batch) and fixed filler grams
   for (const line of lines) {
     if (line.isBacteria) {
       const optId = selectedCfuByLineId.get(line.lineId) ?? getDefaultCfuOption(line.cfuOptions)?.id;
@@ -77,20 +88,20 @@ export function calculate(
         line.cfuOptions.find((o) => o.id === optId) ??
         getDefaultCfuOption(line.cfuOptions, line.defaultCfuOptionId);
       const cfuPerG = opt ? opt.cfu_per_gram : 0;
-      const scaledTargetTotalCfu = line.targetTotalCfu * scaleFactor;
+      const scaledTargetTotalCfu = line.targetTotalCfu * scale;
       let grams = 0;
       let warning: string | undefined;
       if (cfuPerG <= 0) {
-        warning = "CFU/g is 0";
+        warning = "Stock CFU/g is zero — cannot calculate grams. Select a valid stock option.";
+        zeroCfuNames.push(line.ingredientName);
       } else {
         grams = scaledTargetTotalCfu / cfuPerG;
       }
-      bacteriaGrams.push(grams);
       const totalCfu = scaledTargetTotalCfu;
       const finalCfuPerGram = totalBatchGrams > 0 ? totalCfu / totalBatchGrams : 0;
       const costInProduct = (line.costPerKgGbp * grams) / 1000;
       const percent = totalBatchGrams > 0 ? grams / totalBatchGrams : 0;
-      results.push({
+      const res: LineResult = {
         lineId: line.lineId,
         sortOrder: line.sortOrder,
         ingredientId: line.ingredientId,
@@ -108,7 +119,9 @@ export function calculate(
         fillerMode: line.fillerMode,
         fillerRatio: line.fillerRatio,
         warning,
-      });
+      };
+      results.push(res);
+      bacteriaResults.push(res);
     } else {
       if (line.fillerMode === "fixed") {
         const grams = line.defaultGrams * scale;
@@ -141,27 +154,27 @@ export function calculate(
     }
   }
 
-  const sumBacteria = bacteriaGrams.reduce((a, b) => a + b, 0);
+  const sumBacteria = bacteriaResults.reduce((s, r) => s + r.grams, 0);
   const sumFixed = fixedGrams.reduce((a, b) => a + b, 0);
-  let remaining = totalBatchGrams - sumBacteria - sumFixed;
+  const remaining = totalBatchGrams - sumBacteria - sumFixed;
+  const hasZeroCfu = zeroCfuNames.length > 0;
+  const batchOverflow = remaining < 0;
 
-  if (remaining < 0) {
-    return {
-      results,
-      totalGrams: sumBacteria + sumFixed,
-      totalCfu: results.reduce((s, r) => s + r.totalCfu, 0),
-      totalCost: results.reduce((s, r) => s + r.costInProduct, 0),
-      costPerKg: 0,
-      error: "Batch too small for targets",
-    };
+  if (batchOverflow) {
+    for (const br of bacteriaResults) {
+      if (br.grams > 0) br.overflow = true;
+    }
   }
 
+  // Even when the formula is invalid, push ratio/remainder rows (at 0g if overflow)
+  // so the UI can display them dimmed rather than hiding them entirely.
+  const effectiveRemaining = batchOverflow ? 0 : remaining;
   const sumRatioRatios = ratioLines.reduce((s, l) => s + l.fillerRatio, 0);
   const ratioDenom = sumRatioRatios > 0 ? sumRatioRatios : 1;
 
   let ratioGramsSum = 0;
   for (const line of ratioLines) {
-    const grams = remaining * (line.fillerRatio / ratioDenom);
+    const grams = effectiveRemaining * (line.fillerRatio / ratioDenom);
     ratioGramsSum += grams;
     const percent = totalBatchGrams > 0 ? grams / totalBatchGrams : 0;
     const costInProduct = (line.costPerKgGbp * grams) / 1000;
@@ -182,10 +195,11 @@ export function calculate(
       costInProduct,
       fillerMode: line.fillerMode,
       fillerRatio: line.fillerRatio,
+      warning: batchOverflow ? "Filler cannot be allocated — batch overflow" : undefined,
     });
   }
 
-  const remainderGrams = remaining - ratioGramsSum;
+  const remainderGrams = effectiveRemaining - ratioGramsSum;
   if (remainderLine) {
     const percent = totalBatchGrams > 0 ? remainderGrams / totalBatchGrams : 0;
     const costInProduct = (remainderLine.costPerKgGbp * remainderGrams) / 1000;
@@ -206,6 +220,7 @@ export function calculate(
       costInProduct,
       fillerMode: remainderLine.fillerMode,
       fillerRatio: remainderLine.fillerRatio,
+      warning: batchOverflow ? "Filler cannot be allocated — batch overflow" : undefined,
     });
   }
 
@@ -214,9 +229,25 @@ export function calculate(
   const totalGrams = results.reduce((s, r) => s + r.grams, 0);
   const totalCfu = results.reduce((s, r) => s + r.totalCfu, 0);
   const totalCost = results.reduce((s, r) => s + r.costInProduct, 0);
-  const costPerKg = totalBatchGrams > 0 ? totalCost / (totalBatchGrams / 1000) : 0;
+  const formulaValid = !batchOverflow && !hasZeroCfu;
+  const costPerKg = formulaValid && totalBatchGrams > 0 ? totalCost / (totalBatchGrams / 1000) : 0;
 
-  return { results, totalGrams, totalCfu, totalCost, costPerKg };
+  let error: string | undefined;
+  if (batchOverflow) {
+    const needed = sumBacteria + sumFixed;
+    const excess = needed - totalBatchGrams;
+    error = `Bacteria + fixed fillers require ${fmtG(needed)} but batch size is only ${fmtG(totalBatchGrams)}. Formula exceeds batch by ${fmtG(excess)}. Increase batch size or choose stronger stock.`;
+  }
+  if (hasZeroCfu) {
+    const zeroMsg = `Stock CFU/g is zero for: ${zeroCfuNames.join(", ")}. Cannot calculate until a valid stock is selected.`;
+    error = error ? `${error}\n${zeroMsg}` : zeroMsg;
+  }
+
+  return { results, totalGrams, totalCfu, totalCost, costPerKg, formulaValid, error };
+}
+
+function fmtG(grams: number): string {
+  return `${Math.round(grams).toLocaleString("en-GB")} g`;
 }
 
 export function recipeToLineInputs(recipe: RecipeWithLines): LineInput[] {

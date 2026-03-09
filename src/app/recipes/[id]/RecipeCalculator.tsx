@@ -273,9 +273,12 @@ export default function RecipeCalculator({ recipe }: Props) {
       {result.error && (
         <div
           role="alert"
-          className="rounded-xl border-2 border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+          className="rounded-xl border-2 border-red-300 bg-red-50 px-5 py-4 shadow-sm dark:border-red-800 dark:bg-red-950"
         >
-          {result.error}
+          <p className="mb-1 text-sm font-bold text-red-800 dark:text-red-200">Invalid Formula</p>
+          {result.error.split("\n").map((msg, i) => (
+            <p key={i} className="text-sm text-red-700 dark:text-red-300">{msg}</p>
+          ))}
         </div>
       )}
 
@@ -308,10 +311,20 @@ export default function RecipeCalculator({ recipe }: Props) {
               const selectedOpt = line.cfuOptions.find((o) => o.id === selectedOptId);
               const showAddCfu = addCfuLineId === line.lineId;
 
+              const isOverflow = res?.overflow;
+              const isFillerInvalid = !result.formulaValid && !isBacteria && (line.fillerMode === "ratio" || line.fillerMode === "remainder");
+
               return (
                 <tr
                   key={line.lineId}
-                  className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-700/40"
+                  className={[
+                    "transition-colors",
+                    isOverflow
+                      ? "bg-red-50 dark:bg-red-950/40"
+                      : isFillerInvalid
+                        ? "bg-amber-50/60 opacity-60 dark:bg-amber-950/20"
+                        : "hover:bg-zinc-50 dark:hover:bg-zinc-700/40",
+                  ].join(" ")}
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-zinc-900 dark:text-zinc-100">
                     {line.ingredientCode && (
@@ -523,9 +536,21 @@ export default function RecipeCalculator({ recipe }: Props) {
       </div>
 
       {/* Totals + PDF */}
-      <div className="rounded-xl border-2 border-zinc-200 bg-zinc-50/80 p-6 shadow-md dark:border-zinc-600 dark:bg-zinc-800/50">
+      <div
+        className={[
+          "rounded-xl border-2 p-6 shadow-md",
+          result.formulaValid
+            ? "border-zinc-200 bg-zinc-50/80 dark:border-zinc-600 dark:bg-zinc-800/50"
+            : "border-red-200 bg-red-50/60 dark:border-red-800 dark:bg-red-950/30",
+        ].join(" ")}
+      >
         <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
           Summary
+          {!result.formulaValid && (
+            <span className="ml-2 rounded bg-red-100 px-2 py-0.5 text-xs font-bold uppercase text-red-700 dark:bg-red-900/50 dark:text-red-300">
+              Invalid
+            </span>
+          )}
         </h2>
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div className="flex justify-between gap-4 sm:block">
@@ -543,22 +568,27 @@ export default function RecipeCalculator({ recipe }: Props) {
           </div>
           <div className="flex justify-between gap-4 sm:block">
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total cost</dt>
-            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(result.totalCost)}</dd>
+            <dd className={`font-semibold tabular-nums ${result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"}`}>
+              {result.formulaValid ? formatCurrency(result.totalCost) : `~${formatCurrency(result.totalCost)} (partial)`}
+            </dd>
           </div>
           <div className="flex justify-between gap-4 sm:block">
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per kg</dt>
-            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(result.costPerKg)}</dd>
+            <dd className={`font-semibold tabular-nums ${result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"}`}>
+              {result.formulaValid ? formatCurrency(result.costPerKg) : "—"}
+            </dd>
           </div>
           <div className="flex justify-between gap-4 sm:block">
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per unit</dt>
-            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-              {units > 0 ? formatCurrency(result.totalCost / units) : "—"}
+            <dd className={`font-semibold tabular-nums ${result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"}`}>
+              {result.formulaValid && units > 0 ? formatCurrency(result.totalCost / units) : "—"}
             </dd>
           </div>
         </dl>
         <div className="mt-6">
           <button
             type="button"
+            disabled={!result.formulaValid}
             onClick={() =>
               generateRecipePdf(recipe.name, batchGrams, units, result.results, {
                 totalGrams: result.totalGrams,
@@ -568,9 +598,14 @@ export default function RecipeCalculator({ recipe }: Props) {
                 costPerUnit: units > 0 ? result.totalCost / units : undefined,
               })
             }
-            className="rounded-lg bg-zinc-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+            className={[
+              "rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2",
+              result.formulaValid
+                ? "bg-zinc-800 text-white hover:bg-zinc-700 focus:ring-zinc-500 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+                : "cursor-not-allowed bg-zinc-300 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-500",
+            ].join(" ")}
           >
-            Generate PDF
+            {result.formulaValid ? "Generate PDF" : "PDF unavailable — fix formula"}
           </button>
         </div>
       </div>
