@@ -1,8 +1,22 @@
-import { Pool } from "pg";
+import { Pool, PoolClient } from "pg";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
+
+async function logAction(
+  client: PoolClient,
+  action: string,
+  entityType: string,
+  entityId: number | null,
+  detail: Record<string, unknown>
+): Promise<void> {
+  await client.query(
+    `INSERT INTO audit_log (action, entity_type, entity_id, detail)
+     VALUES ($1, $2, $3, $4)`,
+    [action, entityType, entityId, JSON.stringify(detail)]
+  );
+}
 
 export type Recipe = {
   id: number;
@@ -167,11 +181,37 @@ export async function updateRecipeLineDefaultCfuOption(
 ): Promise<boolean> {
   const client = await pool.connect();
   try {
+    const before = await client.query(
+      `SELECT rl.default_cfu_option_id AS old_option_id,
+              old_opt.label AS old_option_label,
+              new_opt.label AS new_option_label,
+              i.name AS ingredient_name,
+              r.name AS recipe_name
+       FROM recipe_lines rl
+       JOIN ingredients i ON i.id = rl.ingredient_id
+       JOIN recipes r ON r.id = rl.recipe_id
+       LEFT JOIN ingredient_cfu_options old_opt ON old_opt.id = rl.default_cfu_option_id
+       LEFT JOIN ingredient_cfu_options new_opt ON new_opt.id = $1
+       WHERE rl.id = $2`,
+      [optionId, recipeLineId]
+    );
     const r = await client.query(
       "UPDATE recipe_lines SET default_cfu_option_id = $1 WHERE id = $2",
       [optionId, recipeLineId]
     );
-    return (r.rowCount ?? 0) > 0;
+    const updated = (r.rowCount ?? 0) > 0;
+    if (updated) {
+      const prev = before.rows[0];
+      await logAction(client, "update_default_cfu_option", "recipe_lines", recipeLineId, {
+        recipe_name: prev?.recipe_name,
+        ingredient_name: prev?.ingredient_name,
+        old_option_id: prev?.old_option_id ?? null,
+        old_option_label: prev?.old_option_label ?? null,
+        new_option_id: optionId,
+        new_option_label: prev?.new_option_label ?? null,
+      });
+    }
+    return updated;
   } finally {
     client.release();
   }
@@ -193,7 +233,7 @@ export async function addCfuOption(
     );
     const row = r.rows[0];
     if (!row) return null;
-    return {
+    const option = {
       id: row.id,
       ingredient_id: row.ingredient_id,
       label: row.label,
@@ -201,6 +241,10 @@ export async function addCfuOption(
       is_default: row.is_default,
       price_gbp: row.price_gbp != null ? Number(row.price_gbp) : null,
     };
+    await logAction(client, "add_cfu_option", "ingredient_cfu_options", option.id, {
+      new_record: option,
+    });
+    return option;
   } finally {
     client.release();
   }
@@ -212,11 +256,29 @@ export async function updateRecipeLineCost(
 ): Promise<boolean> {
   const client = await pool.connect();
   try {
+    const before = await client.query(
+      `SELECT rl.cost_per_kg_gbp AS old_cost, i.name AS ingredient_name, r.name AS recipe_name
+       FROM recipe_lines rl
+       JOIN ingredients i ON i.id = rl.ingredient_id
+       JOIN recipes r ON r.id = rl.recipe_id
+       WHERE rl.id = $1`,
+      [recipeLineId]
+    );
     const r = await client.query(
       "UPDATE recipe_lines SET cost_per_kg_gbp = $1 WHERE id = $2",
       [costPerKgGbp, recipeLineId]
     );
-    return (r.rowCount ?? 0) > 0;
+    const updated = (r.rowCount ?? 0) > 0;
+    if (updated) {
+      const prev = before.rows[0];
+      await logAction(client, "update_recipe_line_cost", "recipe_lines", recipeLineId, {
+        recipe_name: prev?.recipe_name,
+        ingredient_name: prev?.ingredient_name,
+        old_cost_per_kg_gbp: prev?.old_cost != null ? Number(prev.old_cost) : null,
+        new_cost_per_kg_gbp: costPerKgGbp,
+      });
+    }
+    return updated;
   } finally {
     client.release();
   }
@@ -225,11 +287,24 @@ export async function updateRecipeLineCost(
 export async function deleteCfuOption(optionId: number): Promise<boolean> {
   const client = await pool.connect();
   try {
+    const before = await client.query(
+      `SELECT o.*, i.name AS ingredient_name
+       FROM ingredient_cfu_options o
+       JOIN ingredients i ON i.id = o.ingredient_id
+       WHERE o.id = $1`,
+      [optionId]
+    );
     const r = await client.query(
       "DELETE FROM ingredient_cfu_options WHERE id = $1",
       [optionId]
     );
-    return (r.rowCount ?? 0) > 0;
+    const deleted = (r.rowCount ?? 0) > 0;
+    if (deleted && before.rows[0]) {
+      await logAction(client, "delete_cfu_option", "ingredient_cfu_options", optionId, {
+        deleted_record: before.rows[0],
+      });
+    }
+    return deleted;
   } finally {
     client.release();
   }

@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS recipe_lines (
 
   -- Optional per-recipe default CFU stock option.
   -- When set, UI prefers this option over the ingredient-wide default.
-  default_cfu_option_id INT NULL REFERENCES ingredient_cfu_options(id),
+  default_cfu_option_id INT NULL REFERENCES ingredient_cfu_options(id) ON DELETE SET NULL,
 
   UNIQUE (recipe_id, ingredient_id)
 );
@@ -57,6 +57,19 @@ CREATE TABLE IF NOT EXISTS recipe_lines (
 CREATE INDEX IF NOT EXISTS idx_recipe_lines_recipe ON recipe_lines(recipe_id);
 CREATE INDEX IF NOT EXISTS idx_cfu_options_ing ON ingredient_cfu_options(ingredient_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ingredients_name ON ingredients(name);
+
+-- audit log for tracking all mutations (inserts, updates, deletes)
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          SERIAL PRIMARY KEY,
+  action      TEXT NOT NULL,          -- e.g. 'delete_cfu_option', 'add_cfu_option'
+  entity_type TEXT NOT NULL,          -- e.g. 'ingredient_cfu_options', 'recipe_lines'
+  entity_id   INT,                    -- PK of affected row (null if not applicable)
+  detail      JSONB NOT NULL DEFAULT '{}',  -- before/after snapshots, context
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
 
 -- add columns for existing DBs (no-op if already present)
 ALTER TABLE recipe_lines ADD COLUMN IF NOT EXISTS cost_per_kg_gbp NUMERIC NULL;
