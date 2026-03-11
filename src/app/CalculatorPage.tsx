@@ -12,6 +12,7 @@ type Props = {
 
 export default function CalculatorPage({ recipes }: Props) {
   const [search, setSearch] = useState("");
+  const [submittedSearch, setSubmittedSearch] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [recipe, setRecipe] = useState<RecipeWithLines | null>(null);
   const [loading, setLoading] = useState(false);
@@ -22,22 +23,49 @@ export default function CalculatorPage({ recipes }: Props) {
     return recipes.filter((r) => r.name.toLowerCase().includes(q));
   }, [recipes, search]);
 
+  const searchResults = useMemo(() => {
+    if (submittedSearch == null || submittedSearch === "") return [];
+    const q = submittedSearch.trim().toLowerCase();
+    return recipes.filter((r) => r.name.toLowerCase().includes(q));
+  }, [recipes, submittedSearch]);
+
+  const selectionInFiltered = selectedId != null && filtered.some((r) => r.id === selectedId);
+
+  const runSearch = useCallback(() => {
+    const q = search.trim();
+    setSubmittedSearch(q || null);
+  }, [search]);
+
+  const pickFromSearch = useCallback((id: number) => {
+    setSelectedId(id);
+    setSubmittedSearch(null);
+  }, []);
+
   useEffect(() => {
-    if (selectedId == null) {
-      setRecipe(null);
-      return;
-    }
-    setLoading(true);
+    if (selectedId == null) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setLoading(true);
+    });
     getRecipe(selectedId)
       .then((r) => {
-        setRecipe(r ?? null);
+        if (!cancelled) setRecipe(r ?? null);
       })
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (!cancelled) setRecipe(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedId]);
 
   const handleSelect = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = e.target.value ? Number(e.target.value) : null;
     setSelectedId(id);
+    if (id == null) setRecipe(null);
   }, []);
 
   return (
@@ -53,19 +81,31 @@ export default function CalculatorPage({ recipes }: Props) {
           <div className="mt-6 flex flex-wrap items-center gap-4">
             <input
               type="search"
-              placeholder="Search formulas…"
+              placeholder="Search formulas (press Enter)"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && runSearch()}
               className="min-w-[220px] rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700/50 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-emerald-400 dark:focus:bg-zinc-700"
               aria-label="Search formulas"
             />
+            <button
+              type="button"
+              onClick={runSearch}
+              className="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600 dark:focus:border-emerald-400 dark:focus:bg-zinc-700"
+            >
+              Search
+            </button>
             <select
-              value={selectedId ?? ""}
+              value={selectionInFiltered ? selectedId : ""}
               onChange={handleSelect}
               className="min-w-[300px] rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2.5 text-sm font-medium text-zinc-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700/50 dark:text-zinc-100 dark:focus:border-emerald-400 dark:focus:bg-zinc-700"
               aria-label="Select formula"
             >
-              <option value="">Select a formula</option>
+              <option value="">
+                {search.trim() && filtered.length === 0
+                  ? "No formulas match"
+                  : "Select a formula"}
+              </option>
               {filtered.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
@@ -90,7 +130,7 @@ export default function CalculatorPage({ recipes }: Props) {
               </p>
             </div>
           )}
-          {!loading && recipe && <RecipeCalculator recipe={recipe} />}
+          {!loading && recipe && selectionInFiltered && <RecipeCalculator recipe={recipe} />}
           {!loading && !recipe && selectedId != null && (
             <div className="py-16 text-center">
               <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
@@ -98,10 +138,50 @@ export default function CalculatorPage({ recipes }: Props) {
               </p>
             </div>
           )}
-          {!loading && selectedId == null && (
+          {!loading && submittedSearch != null && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                  Formulas matching &ldquo;{submittedSearch}&rdquo;
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setSubmittedSearch(null)}
+                  className="text-sm font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                >
+                  Clear search
+                </button>
+              </div>
+              {searchResults.length === 0 ? (
+                <p className="py-8 text-sm text-zinc-500 dark:text-zinc-400">
+                  No formulas match &ldquo;{submittedSearch}&rdquo;.
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {searchResults.map((r) => (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        onClick={() => pickFromSearch(r.id)}
+                        className="block w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-4 text-left transition-colors hover:border-emerald-300 hover:bg-emerald-50/80 dark:border-zinc-600 dark:bg-zinc-700/50 dark:hover:border-emerald-600 dark:hover:bg-emerald-900/20"
+                      >
+                        <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                          {r.name}
+                        </span>
+                        <span className="mt-1 block text-sm text-zinc-500 dark:text-zinc-400">
+                          Default batch: {r.default_batch_grams.toLocaleString()} g
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {!loading && submittedSearch == null && (!selectionInFiltered || selectedId == null) && (
             <div className="py-16 text-center">
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Use the dropdown above to select a formula and run the calculator.
+                Search by keyword (press Enter) or choose a formula from the dropdown above.
               </p>
             </div>
           )}
