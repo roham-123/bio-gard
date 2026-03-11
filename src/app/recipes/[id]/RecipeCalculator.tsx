@@ -279,6 +279,13 @@ export default function RecipeCalculator({ recipe }: Props) {
         </div>
       </div>
 
+      {/* Formula title */}
+      <div className="mt-2">
+        <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+          {recipe.name}
+        </h2>
+      </div>
+
       {result.error && (
         <div
           role="alert"

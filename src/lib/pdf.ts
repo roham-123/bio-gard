@@ -14,7 +14,7 @@ export function generateRecipePdf(
   let y = 16;
 
   doc.setFontSize(16);
-  doc.text("Bio Gard Formula Calculator", 14, y);
+  doc.text("Purchase Order", 14, y);
   y += 10;
 
   doc.setFontSize(12);
