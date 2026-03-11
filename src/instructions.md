@@ -44,6 +44,7 @@ Each recipe line stores the permanent formula definition:
 • filler_mode: fixed / ratio / remainder
 • filler_ratio (only used for ratio)
 • cost_per_kg_gbp — per-recipe cost override (editable in the UI); always set in seed data
+• default_cfu_option_id — optional per-recipe default stock option for this line
 
 Stock options (ingredient_cfu_options)
 
@@ -103,8 +104,8 @@ For each line that is treated as "CFU ingredient":
 If cfu_per_g <= 0 (or null):
 • set grams = 0
 • set total_cfu = 0
-• show a warning for that row: “Stock CFU/g is zero — cannot calculate grams. Select a valid stock option.”
-• mark the overall formula as invalid (see “Batch overflow / invalid formula” below)
+• show a warning for that row: "Stock CFU/g is zero — cannot calculate grams. Select a valid stock option."
+• mark the overall formula as invalid (see "Batch overflow / invalid formula" below)
 
 Else:
 • grams = scaled_target_total_cfu / cfu_per_g
@@ -139,10 +140,10 @@ Step 3: allocate remaining grams to ratio + remainder fillers
     • mark the formula as invalid
     • still show calculated bacteria grams, target CFU and cost impact
     • show a clear error such as:
-      “Bacteria + fixed fillers require 12,430 g but batch size is only 10,000 g. Formula exceeds batch by 2,430 g. Increase batch size or choose stronger stock.”
+      "Bacteria + fixed fillers require 12,430 g but batch size is only 10,000 g. Formula exceeds batch by 2,430 g. Increase batch size or choose stronger stock."
     • set ratio and remainder fillers to 0 g (do not pretend there is remaining mass)
     • highlight the bacteria rows causing the overflow
-    • dim ratio/remainder filler rows and show a filler warning (“Filler cannot be allocated — batch overflow”)
+    • dim ratio/remainder filler rows and show a filler warning ("Filler cannot be allocated — batch overflow")
     • in this state, cost per kg / cost per unit are suppressed (no derived totals on an invalid formula)
     • PDF generation is disabled in the UI (user must either increase batch size or choose stronger stock)
 
@@ -176,50 +177,83 @@ Totals to display
 
 UI pages
 
-/recipes
-• list recipes
-• click to open /recipes/[id]
+/ (home / calculator)
+• Dropdown to select a recipe; loads the calculator inline.
+• Search bar: type a keyword and press Enter (or click Search) to display all formulas matching the keyword. Click a result to load that formula in the calculator. "Clear search" button resets to the dropdown view.
+• "+ Create New Formula" button links to /recipes/new.
 
-/recipes/[id]
+/recipes
+• List all recipes.
+• Click to open /recipes/[id].
+
+/recipes/new — Create New Formula
+• RecipeBuilder component in create mode.
+• Inputs: formula name, default batch size (kg).
+• Dynamic table of ingredient rows. Each row has:
+  • Ingredient dropdown (with "+ Create new ingredient" at top; bacteria ingredients prefixed with 🧬).
+  • "Is Bacteria" checkbox — when ticked, filler mode is forced to "fixed" and greyed out; Target CFU field is enabled. When unticked, Target CFU is disabled and greyed out.
+  • Filler mode dropdown: fixed / ratio / remainder. "Ratio" enables a ratio input field.
+  • Target CFU input (scientific notation, e.g. 1e13) — only for bacteria rows.
+  • Default g input — only for non-bacteria rows with filler_mode = "fixed".
+  • Stock option dropdown — shows available stock options for the selected ingredient. For bacteria, display includes CFU/g and optional price. For fillers, display shows label and cost/kg. Users can add new stock options inline (label, CFU/g for bacteria, cost/kg).
+• "+ Add Row" button appends a new empty row; "Remove" button on each row (when more than one row exists).
+• "Save Formula" button creates the recipe via createRecipeAction and redirects to /recipes/[id].
+• Inline "Create new ingredient" form: name, code (optional), is_bacteria checkbox. Creates ingredient via createIngredientAction.
+• When saving: bacteria default_grams is auto-computed from target_total_cfu / selected stock cfu_per_gram. The selected stock option becomes the default_cfu_option_id for that recipe line.
+
+/recipes/[id] — Formula Detail / Calculator
 • batch size input (kg; UI shows equivalent g)
 • kg per unit input; UI shows derived number of units (≈ N units)
 • ingredient table columns:
-• ingredient
-• grams, kg, g per unit, %
-• Stock CFU/g selector (only for lines treated as CFU ingredient; read-only label when not editing)
-• Target CFU (show scaled target)
-• Final CFU/g
-• Cost/kg (editable per line when in "Edit" mode)
-• Cost in product
+  • ingredient
+  • grams, kg, g per unit, %
+  • Stock CFU/g selector (only for lines treated as CFU ingredient; read-only label when not editing)
+  • Target CFU (show scaled target)
+  • Final CFU/g
+  • Cost/kg (editable per line when in "Edit Stock" mode)
+  • Cost in product
 • add stock option UI:
-• label + numeric CFU/g
-• optional price (£)
-• add option and set selected
-• edit mode:
-• toggle to edit line cost/kg and stock options
-• saving persists updated costs and any newly added stock options
+  • label + numeric CFU/g
+  • optional price (£)
+  • add option and set selected
+• "Edit Stock" button: toggle to edit line cost/kg and stock options; saving persists updated costs and any newly added stock options.
+• "Edit Formula" button: navigates to /recipes/[id]/edit to edit the formula's ingredients.
 • summary box:
-• Total grams (kg and g)
-• Total final CFU/g (sum of final CFU/g column)
-• Total cost
-• Cost per kg
-• Cost per unit
+  • Total grams (kg and g)
+  • Total final CFU/g (sum of final CFU/g column)
+  • Total cost
+  • Cost per kg
+  • Cost per unit
 • PDF generation:
-• includes batch size, units, and ingredients table
-• table shows Ingredient, g, kg, g per unit, %, Stock CFU/g, Target CFU, Final CFU/g, Cost/kg, Cost in product
+  • includes batch size, units, and ingredients table
+  • table shows Ingredient, g, kg, g per unit, %, Stock CFU/g, Target CFU, Final CFU/g, Cost/kg, Cost in product
+
+/recipes/[id]/edit — Edit Formula
+• Same RecipeBuilder component as /recipes/new, but in edit mode.
+• Pre-populated with the existing recipe's name, batch size, and all ingredient rows (including filler modes, target CFU in scientific notation, default grams, selected stock options with their CFU options loaded).
+• User can add, remove, or modify ingredient rows using the same rules as the create form.
+• "Update Formula" button calls updateRecipeAction (replaces all recipe lines in a transaction) and redirects back to /recipes/[id].
 
 ⸻
 
 Implementation notes
 • Keep all calc logic in one module (e.g. src/lib/calc.ts)
 • DB access in src/lib/db.ts using pg.Pool
-• Server functions:
+• Server actions are defined in src/app/actions.ts ("use server") and thin-wrap DAL functions.
+• RecipeBuilder component (src/app/recipes/new/RecipeBuilder.tsx) is shared between create (/recipes/new) and edit (/recipes/[id]/edit) modes via an optional existingRecipe prop.
+• Server / DAL functions:
   • getRecipes()
   • getRecipe(recipeId) (recipe + lines + ingredients + stock options)
+  • getIngredients() — all ingredients sorted by name
+  • getIngredientCfuOptions(ingredientId) — stock options for a specific ingredient
+  • createIngredient(name, isBacteria, code, costPerKgGbp) — inserts ingredient with audit log
+  • createRecipe(name, defaultBatchGrams, lines: CreateRecipeLineInput[]) — inserts recipe + lines in a transaction with audit log
+  • updateRecipe(recipeId, name, defaultBatchGrams, lines: CreateRecipeLineInput[]) — updates recipe header, deletes old lines, inserts new lines in a transaction with audit log
   • addCfuOption(ingredientId, label, cfuPerGram, priceGbp?) (default=false)
   • deleteCfuOption(optionId)
   • updateRecipeLineCost(recipeLineId, costPerKgGbp)
   • updateRecipeLineDefaultCfuOption(recipeLineId, optionId | null)
+• CreateRecipeLineInput type: ingredientId, sortOrder, targetTotalCfu, defaultGrams, fillerMode, fillerRatio, costPerKgGbp, defaultCfuOptionId
 • PDF generation in src/lib/pdf.ts using jsPDF + jsPDF-autotable (mirrors main table columns and summary)
 
 Audit logging
@@ -232,7 +266,12 @@ Audit logging
   • delete_cfu_option: detail.deleted_record contains the full option row (including ingredient name) before delete.
   • update_recipe_line_cost: detail includes recipe_name, ingredient_name, old_cost_per_kg_gbp, new_cost_per_kg_gbp.
   • update_default_cfu_option: detail includes recipe_name, ingredient_name, old_option_id/label and new_option_id/label.
-• This makes it possible to recover what was deleted/changed later, even if the UI doesn’t show it anymore.
+  • create_ingredient: detail includes ingredient name, code, is_bacteria.
+  • create_recipe: detail includes name, default_batch_grams, line_count.
+  • create_recipe_line: detail includes recipe_id, recipe_name, ingredient_id, sort_order.
+  • update_recipe: detail includes name, default_batch_grams, line_count (logged after lines are replaced).
+  • update_recipe_clear_lines: detail includes recipe_name, old_line_count, old_lines (snapshot of previous lines before deletion).
+• This makes it possible to recover what was deleted/changed later, even if the UI doesn't show it anymore.
 
 ⸻
 
