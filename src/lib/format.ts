@@ -44,10 +44,18 @@ export function formatCfu(value: unknown): string {
   return formatNumber(n, { maxDecimals: 2, forceScientific: n >= 1e6 || (n > 0 && n < 0.01) });
 }
 
+export function formatGrams(value: unknown): string {
+  return toNum(value).toFixed(2);
+}
+
+export function formatKg(value: unknown): string {
+  return toNum(value).toFixed(3);
+}
+
 export function formatPercent(value: unknown): string {
-  return formatNumber(toNum(value) * 100, { maxDecimals: 2 }) + "%";
+  return (toNum(value) * 100).toFixed(2) + "%";
 }
 
 export function formatCurrency(value: unknown): string {
-  return "£" + formatNumber(value, { maxDecimals: 2 });
+  return "£" + toNum(value).toFixed(2);
 }

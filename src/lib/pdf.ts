@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { LineResult } from "./calc";
-import { formatNumber, formatCfu, formatPercent, formatCurrency } from "./format";
+import { formatGrams, formatKg, formatCfu, formatPercent, formatCurrency } from "./format";
 
 export function generateRecipePdf(
   recipeName: string,
@@ -20,7 +20,7 @@ export function generateRecipePdf(
   doc.setFontSize(12);
   doc.text(`Formula: ${recipeName}`, 14, y);
   y += 6;
-  doc.text(`Batch size: ${formatNumber(batchGrams, { maxDecimals: 2 })} g (${formatNumber(batchGrams / 1000, { maxDecimals: 2 })} kg)`, 14, y);
+  doc.text(`Batch size: ${formatGrams(batchGrams)} g (${formatKg(batchGrams / 1000)} kg)`, 14, y);
   y += 6;
   doc.text(`Units: ${units}`, 14, y);
   y += 10;
@@ -29,8 +29,9 @@ export function generateRecipePdf(
     "Ingredient",
     "g",
     "kg",
-    "g per unit",
-    "%",
+    "g/unit",
+    "Design %",
+    "Actual %",
     "Stock CFU/g",
     "Target CFU",
     "Final CFU/g",
@@ -39,9 +40,10 @@ export function generateRecipePdf(
   ];
   const rows = results.map((r) => [
     (r.ingredientCode ? `[${r.ingredientCode}] ` : "") + r.ingredientName,
-    formatNumber(r.grams, { maxDecimals: 2 }),
-    formatNumber(r.grams / 1000, { maxDecimals: 4 }),
-    units > 0 ? formatNumber(r.grams / units, { maxDecimals: 2 }) : "—",
+    formatGrams(r.grams),
+    formatKg(r.grams / 1000),
+    units > 0 ? formatGrams(r.grams / units) : "—",
+    formatPercent(r.designPercent),
     formatPercent(r.percent),
     r.isBacteria ? formatCfu(r.cfuPerGram) : "—",
     r.isBacteria ? formatCfu(r.targetTotalCfu) : "—",
@@ -63,7 +65,7 @@ export function generateRecipePdf(
   y = tableEndY + 10;
 
   doc.setFontSize(10);
-  doc.text(`Total grams: ${formatNumber(totals.totalGrams, { maxDecimals: 2 })} g`, 14, y);
+  doc.text(`Total grams: ${formatGrams(totals.totalGrams)} g`, 14, y);
   y += 6;
   doc.text(`Total CFU: ${formatCfu(totals.totalCfu)}`, 14, y);
   y += 6;

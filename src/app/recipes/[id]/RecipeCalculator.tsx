@@ -10,7 +10,7 @@ import {
   type LineInput,
   type LineResult,
 } from "@/lib/calc";
-import { formatNumber, formatCfu, formatPercent, formatCurrency, parseScientific } from "@/lib/format";
+import { formatGrams, formatKg, formatCfu, formatPercent, formatCurrency, formatNumber, parseScientific } from "@/lib/format";
 import { generateRecipePdf } from "@/lib/pdf";
 import {
   addCfuOption,
@@ -216,7 +216,7 @@ export default function RecipeCalculator({ recipe }: Props) {
             />
             {batchGrams > 0 && (
               <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                = {formatNumber(batchGrams, { maxDecimals: 2 })} g
+                = {formatGrams(batchGrams)} g
               </span>
             )}
           </div>
@@ -332,7 +332,9 @@ export default function RecipeCalculator({ recipe }: Props) {
                       ? "bg-red-50 dark:bg-red-950/40"
                       : isFillerInvalid
                         ? "bg-amber-50/60 opacity-60 dark:bg-amber-950/20"
-                        : "hover:bg-zinc-50 dark:hover:bg-zinc-700/40",
+                        : isBacteria
+                          ? "bg-emerald-50/50 dark:bg-emerald-950/10"
+                          : "hover:bg-zinc-50 dark:hover:bg-zinc-700/40",
                   ].join(" ")}
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-zinc-900 dark:text-zinc-100">
@@ -351,16 +353,16 @@ export default function RecipeCalculator({ recipe }: Props) {
                     )}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {res ? formatNumber(res.grams, { maxDecimals: 2 }) : "—"}
+                    {res ? formatGrams(res.grams) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {res ? formatNumber(res.grams / 1000, { maxDecimals: 4 }) : "—"}
+                    {res ? formatKg(res.grams / 1000) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {res && units > 0 ? formatNumber(res.grams / units, { maxDecimals: 2 }) : "—"}
+                    {res && units > 0 ? formatGrams(res.grams / units) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {res ? formatPercent(res.percent) : "—"}
+                    {res ? formatPercent(res.designPercent) : "—"}
                   </td>
                   <td className="px-4 py-3 text-sm">
                     {isBacteria ? (
@@ -495,7 +497,7 @@ export default function RecipeCalculator({ recipe }: Props) {
                               {(line.defaultCfuOptionId != null
                                 ? selectedOpt.id === line.defaultCfuOptionId
                                 : selectedOpt.is_default) && (
-                                <span className="ml-1 rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                                <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
                                   Default
                                 </span>
                               )}
@@ -565,8 +567,8 @@ export default function RecipeCalculator({ recipe }: Props) {
           <div className="flex justify-between gap-4 sm:block">
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total grams</dt>
             <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-              {formatNumber(result.totalGrams / 1000, { maxDecimals: 2 })} kg (
-              {formatNumber(result.totalGrams, { maxDecimals: 2 })} g)
+              {formatKg(result.totalGrams / 1000)} kg (
+              {formatGrams(result.totalGrams)} g)
             </dd>
           </div>
           <div className="flex justify-between gap-4 sm:block">

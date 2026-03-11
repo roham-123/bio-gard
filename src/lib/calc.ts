@@ -32,6 +32,8 @@ export type LineResult = {
   targetTotalCfu: number;
   grams: number;
   percent: number;
+  /** Design percent: defaultGrams / defaultBatchGrams (the original formula ratio) */
+  designPercent: number;
   cfuPerGram: number; // selected (for bacteria) or 0
   totalCfu: number;
   finalCfuPerGram: number; // totalCfu / totalBatchGrams
@@ -101,6 +103,7 @@ export function calculate(
       const finalCfuPerGram = totalBatchGrams > 0 ? totalCfu / totalBatchGrams : 0;
       const costInProduct = (line.costPerKgGbp * grams) / 1000;
       const percent = totalBatchGrams > 0 ? grams / totalBatchGrams : 0;
+      const designPercent = defaultBatchGrams > 0 ? line.defaultGrams / defaultBatchGrams : 0;
       const res: LineResult = {
         lineId: line.lineId,
         sortOrder: line.sortOrder,
@@ -112,6 +115,7 @@ export function calculate(
         targetTotalCfu: scaledTargetTotalCfu,
         grams,
         percent,
+        designPercent,
         cfuPerGram: cfuPerG,
         totalCfu,
         finalCfuPerGram,
@@ -127,6 +131,7 @@ export function calculate(
         const grams = line.defaultGrams * scale;
         fixedGrams.push(grams);
         const percent = totalBatchGrams > 0 ? grams / totalBatchGrams : 0;
+        const designPercent = defaultBatchGrams > 0 ? line.defaultGrams / defaultBatchGrams : 0;
         const costInProduct = (line.costPerKgGbp * grams) / 1000;
         results.push({
           lineId: line.lineId,
@@ -139,6 +144,7 @@ export function calculate(
           targetTotalCfu: 0,
           grams,
           percent,
+          designPercent,
           cfuPerGram: 0,
           totalCfu: 0,
           finalCfuPerGram: 0,
@@ -177,6 +183,7 @@ export function calculate(
     const grams = effectiveRemaining * (line.fillerRatio / ratioDenom);
     ratioGramsSum += grams;
     const percent = totalBatchGrams > 0 ? grams / totalBatchGrams : 0;
+    const designPercent = defaultBatchGrams > 0 ? line.defaultGrams / defaultBatchGrams : 0;
     const costInProduct = (line.costPerKgGbp * grams) / 1000;
     results.push({
       lineId: line.lineId,
@@ -189,6 +196,7 @@ export function calculate(
       targetTotalCfu: 0,
       grams,
       percent,
+      designPercent,
       cfuPerGram: 0,
       totalCfu: 0,
       finalCfuPerGram: 0,
@@ -202,6 +210,7 @@ export function calculate(
   const remainderGrams = effectiveRemaining - ratioGramsSum;
   if (remainderLine) {
     const percent = totalBatchGrams > 0 ? remainderGrams / totalBatchGrams : 0;
+    const designPercent = defaultBatchGrams > 0 ? remainderLine.defaultGrams / defaultBatchGrams : 0;
     const costInProduct = (remainderLine.costPerKgGbp * remainderGrams) / 1000;
     results.push({
       lineId: remainderLine.lineId,
@@ -214,6 +223,7 @@ export function calculate(
       targetTotalCfu: 0,
       grams: remainderGrams,
       percent,
+      designPercent,
       cfuPerGram: 0,
       totalCfu: 0,
       finalCfuPerGram: 0,
