@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { Recipe, RecipeWithLines } from "@/lib/db";
 import { getRecipe } from "@/app/actions";
 import RecipeCalculator from "@/app/recipes/[id]/RecipeCalculator";
@@ -71,6 +72,13 @@ export default function CalculatorPage({ recipes }: Props) {
                 </option>
               ))}
             </select>
+            <Link
+              href="/recipes/new"
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-800"
+            >
+              <span className="text-lg leading-none">+</span>
+              Create New Formula
+            </Link>
           </div>
         </header>
 

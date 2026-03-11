@@ -309,3 +309,147 @@ export async function deleteCfuOption(optionId: number): Promise<boolean> {
     client.release();
   }
 }
+
+export async function getIngredients(): Promise<Ingredient[]> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<{
+      id: number;
+      code: string | null;
+      name: string;
+      is_bacteria: boolean;
+      cost_per_kg_gbp: string;
+    }>("SELECT id, code, name, is_bacteria, cost_per_kg_gbp FROM ingredients ORDER BY name");
+    return r.rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      is_bacteria: row.is_bacteria,
+      cost_per_kg_gbp: Number(row.cost_per_kg_gbp),
+    }));
+  } finally {
+    client.release();
+  }
+}
+
+export async function getIngredientCfuOptions(ingredientId: number): Promise<CfuOption[]> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<CfuOption & { cfu_per_gram: string; price_gbp: string | null }>(
+      `SELECT id, ingredient_id, label, cfu_per_gram, is_default, price_gbp
+       FROM ingredient_cfu_options
+       WHERE ingredient_id = $1
+       ORDER BY is_default DESC, id`,
+      [ingredientId]
+    );
+    return r.rows.map((c) => ({
+      id: c.id,
+      ingredient_id: c.ingredient_id,
+      label: c.label,
+      cfu_per_gram: Number(c.cfu_per_gram),
+      is_default: c.is_default,
+      price_gbp: c.price_gbp != null ? Number(c.price_gbp) : null,
+    }));
+  } finally {
+    client.release();
+  }
+}
+
+export async function createIngredient(
+  name: string,
+  isBacteria: boolean,
+  code: string | null = null,
+  costPerKgGbp: number = 0
+): Promise<Ingredient> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<{ id: number; code: string | null; name: string; is_bacteria: boolean; cost_per_kg_gbp: string }>(
+      `INSERT INTO ingredients (code, name, is_bacteria, cost_per_kg_gbp)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, code, name, is_bacteria, cost_per_kg_gbp`,
+      [code || null, name, isBacteria, costPerKgGbp]
+    );
+    const row = r.rows[0];
+    const ingredient = {
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      is_bacteria: row.is_bacteria,
+      cost_per_kg_gbp: Number(row.cost_per_kg_gbp),
+    };
+    await logAction(client, "create_ingredient", "ingredients", ingredient.id, {
+      new_record: ingredient,
+    });
+    return ingredient;
+  } finally {
+    client.release();
+  }
+}
+
+export type CreateRecipeLineInput = {
+  ingredientId: number;
+  sortOrder: number;
+  targetTotalCfu: number;
+  defaultGrams: number;
+  fillerMode: "fixed" | "ratio" | "remainder";
+  fillerRatio: number;
+  costPerKgGbp: number | null;
+  defaultCfuOptionId: number | null;
+};
+
+export async function createRecipe(
+  name: string,
+  defaultBatchGrams: number,
+  lines: CreateRecipeLineInput[]
+): Promise<{ id: number }> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const recipeResult = await client.query<{ id: number }>(
+      `INSERT INTO recipes (name, default_batch_grams) VALUES ($1, $2) RETURNING id`,
+      [name, defaultBatchGrams]
+    );
+    const recipeId = recipeResult.rows[0].id;
+
+    for (const line of lines) {
+      const lineResult = await client.query<{ id: number }>(
+        `INSERT INTO recipe_lines
+           (recipe_id, ingredient_id, sort_order, target_total_cfu, default_grams, filler_mode, filler_ratio, cost_per_kg_gbp, default_cfu_option_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id`,
+        [
+          recipeId,
+          line.ingredientId,
+          line.sortOrder,
+          line.targetTotalCfu,
+          line.defaultGrams,
+          line.fillerMode,
+          line.fillerRatio,
+          line.costPerKgGbp,
+          line.defaultCfuOptionId,
+        ]
+      );
+      await logAction(client, "create_recipe_line", "recipe_lines", lineResult.rows[0].id, {
+        recipe_id: recipeId,
+        recipe_name: name,
+        ingredient_id: line.ingredientId,
+        sort_order: line.sortOrder,
+      });
+    }
+
+    await logAction(client, "create_recipe", "recipes", recipeId, {
+      name,
+      default_batch_grams: defaultBatchGrams,
+      line_count: lines.length,
+    });
+
+    await client.query("COMMIT");
+    return { id: recipeId };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
