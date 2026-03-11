@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Bio Gard Recipe Calculator",
-  description: "Calculator for Bio Gard recipes: batch size, CFU options, costs",
+  title: "Bio Gard Formula Calculator",
+  description: "Calculator for Bio Gard formulas: batch size, CFU options, costs",
 };
 
 export default function RootLayout({

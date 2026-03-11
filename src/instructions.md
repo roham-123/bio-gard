@@ -100,10 +100,11 @@ For each line that is treated as "CFU ingredient":
 • cfu_per_g = selected stock option cfu_per_gram (default selected initially)
 • scaled_target_total_cfu = line.target_total_cfu \* scaleFactor
 
-If cfu_per_g <= 0:
+If cfu_per_g <= 0 (or null):
 • set grams = 0
 • set total_cfu = 0
-• show a warning for that row (cannot compute without CFU/g)
+• show a warning for that row: “Stock CFU/g is zero — cannot calculate grams. Select a valid stock option.”
+• mark the overall formula as invalid (see “Batch overflow / invalid formula” below)
 
 Else:
 • grams = scaled_target_total_cfu / cfu_per_g
@@ -129,24 +130,37 @@ For lines with filler_mode = 'fixed' and not treated as "CFU ingredient":
 
 ⸻
 
-Step 3: allocate remaining grams to ratio + remainder fillers 1. remaining = newBatchGrams - sum(CFU ingredient grams) - sum(fixed filler grams) 2. If remaining < 0:
+Step 3: allocate remaining grams to ratio + remainder fillers
 
-    •	show banner: "Batch too small for targets"
-    •	still render numbers, but highlight error.
+1. remaining = newBatchGrams - sum(CFU ingredient grams) - sum(fixed filler grams)
 
-    3.	Ratio fillers:
+2. If remaining < 0 (batch overflow because selected stock CFU/g is too weak for the targets):
 
-    •	let ratioSum = sum(filler_ratio) across all filler_mode='ratio' lines
-    •	for each ratio filler:
-    •	grams = remaining * (filler_ratio / ratioSum)
-    •	percent = grams / newBatchGrams
-    •	cost_in_product = cost_per_kg_gbp * grams / 1000
+    • mark the formula as invalid
+    • still show calculated bacteria grams, target CFU and cost impact
+    • show a clear error such as:
+      “Bacteria + fixed fillers require 12,430 g but batch size is only 10,000 g. Formula exceeds batch by 2,430 g. Increase batch size or choose stronger stock.”
+    • set ratio and remainder fillers to 0 g (do not pretend there is remaining mass)
+    • highlight the bacteria rows causing the overflow
+    • dim ratio/remainder filler rows and show a filler warning (“Filler cannot be allocated — batch overflow”)
+    • in this state, cost per kg / cost per unit are suppressed (no derived totals on an invalid formula)
+    • PDF generation is disabled in the UI (user must either increase batch size or choose stronger stock)
 
-    4.	Remainder filler:
+3. If remaining ≥ 0 (normal case):
 
-    •	grams = remaining - sum(ratio filler grams)
-    •	(assume max 1 remainder filler; if multiple exist, put remainder into the last by sort_order)
-    •	percent/cost same as above.
+    Ratio fillers:
+
+    • let ratioSum = sum(filler_ratio) across all filler_mode='ratio' lines
+    • for each ratio filler:
+      • grams = remaining * (filler_ratio / ratioSum)
+      • percent = grams / newBatchGrams
+      • cost_in_product = cost_per_kg_gbp * grams / 1000
+
+    Remainder filler:
+
+    • grams = remaining - sum(ratio filler grams)
+    • (assume max 1 remainder filler; if multiple exist, put remainder into the last by sort_order)
+    • percent/cost same as above.
 
 ⸻
 
@@ -200,12 +214,25 @@ Implementation notes
 • Keep all calc logic in one module (e.g. src/lib/calc.ts)
 • DB access in src/lib/db.ts using pg.Pool
 • Server functions:
-• getRecipes()
-• getRecipe(recipeId) (recipe + lines + ingredients + stock options)
-• addCfuOption(ingredientId, label, cfuPerGram, priceGbp?) (default=false)
-• deleteCfuOption(optionId)
-• updateRecipeLineCost(recipeLineId, costPerKgGbp)
+  • getRecipes()
+  • getRecipe(recipeId) (recipe + lines + ingredients + stock options)
+  • addCfuOption(ingredientId, label, cfuPerGram, priceGbp?) (default=false)
+  • deleteCfuOption(optionId)
+  • updateRecipeLineCost(recipeLineId, costPerKgGbp)
+  • updateRecipeLineDefaultCfuOption(recipeLineId, optionId | null)
 • PDF generation in src/lib/pdf.ts using jsPDF + jsPDF-autotable (mirrors main table columns and summary)
+
+Audit logging
+
+• All mutating actions are recorded in an audit_log table in Postgres.
+• Schema (simplified): id, action, entity_type, entity_id, detail JSONB, created_at.
+• The db.ts helper logAction(client, action, entityType, entityId, detail) appends a row for each mutation.
+• Logged actions:
+  • add_cfu_option: detail.new_record contains the inserted ingredient_cfu_options row.
+  • delete_cfu_option: detail.deleted_record contains the full option row (including ingredient name) before delete.
+  • update_recipe_line_cost: detail includes recipe_name, ingredient_name, old_cost_per_kg_gbp, new_cost_per_kg_gbp.
+  • update_default_cfu_option: detail includes recipe_name, ingredient_name, old_option_id/label and new_option_id/label.
+• This makes it possible to recover what was deleted/changed later, even if the UI doesn’t show it anymore.
 
 ⸻
 

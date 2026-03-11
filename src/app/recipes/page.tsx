@@ -9,10 +9,10 @@ export default async function RecipesPage() {
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
       <div className="rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 sm:p-8">
         <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
-          Recipes
+          Formulas
         </h1>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Choose a recipe to open the calculator.
+          Choose a formula to open the calculator.
         </p>
         <ul className="mt-6 space-y-3">
           {recipes.map((r) => (

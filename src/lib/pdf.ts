@@ -14,11 +14,11 @@ export function generateRecipePdf(
   let y = 16;
 
   doc.setFontSize(16);
-  doc.text("Bio Gard Recipe Calculator", 14, y);
+  doc.text("Bio Gard Formula Calculator", 14, y);
   y += 10;
 
   doc.setFontSize(12);
-  doc.text(`Recipe: ${recipeName}`, 14, y);
+  doc.text(`Formula: ${recipeName}`, 14, y);
   y += 6;
   doc.text(`Batch size: ${formatNumber(batchGrams, { maxDecimals: 2 })} g (${formatNumber(batchGrams / 1000, { maxDecimals: 2 })} kg)`, 14, y);
   y += 6;
@@ -75,5 +75,5 @@ export function generateRecipePdf(
     doc.text(`Cost per unit: ${formatCurrency(totals.costPerUnit)}`, 14, y);
   }
 
-  doc.save(`recipe-${recipeName.replace(/[^a-z0-9]/gi, "-")}-${batchGrams}g.pdf`);
+  doc.save(`formula-${recipeName.replace(/[^a-z0-9]/gi, "-")}-${batchGrams}g.pdf`);
 }

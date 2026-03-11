@@ -13,12 +13,12 @@ export default async function RecipePage({ params }: Props) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-8">
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
-          <p className="font-medium text-zinc-600 dark:text-zinc-400">Invalid recipe ID.</p>
+          <p className="font-medium text-zinc-600 dark:text-zinc-400">Invalid formula ID.</p>
           <Link
             href="/recipes"
             className="mt-4 inline-block font-medium text-emerald-600 hover:underline dark:text-emerald-400"
           >
-            ← Back to recipes
+            ← Back to formulas
           </Link>
         </div>
       </div>
@@ -29,12 +29,12 @@ export default async function RecipePage({ params }: Props) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-8">
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
-          <p className="font-medium text-zinc-600 dark:text-zinc-400">Recipe not found.</p>
+          <p className="font-medium text-zinc-600 dark:text-zinc-400">Formula not found.</p>
           <Link
             href="/recipes"
             className="mt-4 inline-block font-medium text-emerald-600 hover:underline dark:text-emerald-400"
           >
-            ← Back to recipes
+            ← Back to formulas
           </Link>
         </div>
       </div>
@@ -46,7 +46,7 @@ export default async function RecipePage({ params }: Props) {
         href="/recipes"
         className="mb-6 inline-block font-medium text-emerald-600 hover:underline dark:text-emerald-400"
       >
-        ← Recipes
+        ← Formulas
       </Link>
       <h1 className="mb-6 text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
         {recipe.name}
