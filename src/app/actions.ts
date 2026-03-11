@@ -10,6 +10,7 @@ import {
   getIngredientCfuOptions as dalGetIngredientCfuOptions,
   createIngredient as dalCreateIngredient,
   createRecipe as dalCreateRecipe,
+  updateRecipe as dalUpdateRecipe,
   type CreateRecipeLineInput,
 } from "@/lib/db";
 
@@ -64,4 +65,13 @@ export async function createRecipeAction(
   lines: CreateRecipeLineInput[]
 ) {
   return dalCreateRecipe(name, defaultBatchGrams, lines);
+}
+
+export async function updateRecipeAction(
+  recipeId: number,
+  name: string,
+  defaultBatchGrams: number,
+  lines: CreateRecipeLineInput[]
+) {
+  return dalUpdateRecipe(recipeId, name, defaultBatchGrams, lines);
 }

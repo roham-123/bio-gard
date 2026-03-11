@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
 import type { RecipeWithLines } from "@/lib/db";
 import {
   calculate,
@@ -259,13 +260,21 @@ export default function RecipeCalculator({ recipe }: Props) {
               </span>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={handleEditCostsStart}
-              className="rounded-lg border-2 border-zinc-400 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
-            >
-              Edit
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleEditCostsStart}
+                className="rounded-lg border-2 border-zinc-400 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+              >
+                Edit Stock
+              </button>
+              <Link
+                href={`/recipes/${recipe.id}/edit`}
+                className="rounded-lg border-2 border-emerald-500 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 dark:border-emerald-400 dark:bg-zinc-700 dark:text-emerald-300 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+              >
+                Edit Formula
+              </Link>
+            </div>
           )}
         </div>
       </div>

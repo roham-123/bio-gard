@@ -453,3 +453,71 @@ export async function createRecipe(
     client.release();
   }
 }
+
+export async function updateRecipe(
+  recipeId: number,
+  name: string,
+  defaultBatchGrams: number,
+  lines: CreateRecipeLineInput[]
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE recipes SET name = $1, default_batch_grams = $2 WHERE id = $3`,
+      [name, defaultBatchGrams, recipeId]
+    );
+
+    const oldLines = await client.query(
+      `SELECT id, ingredient_id, sort_order FROM recipe_lines WHERE recipe_id = $1`,
+      [recipeId]
+    );
+    await logAction(client, "update_recipe_clear_lines", "recipes", recipeId, {
+      recipe_name: name,
+      old_line_count: oldLines.rowCount,
+      old_lines: oldLines.rows,
+    });
+
+    await client.query(`DELETE FROM recipe_lines WHERE recipe_id = $1`, [recipeId]);
+
+    for (const line of lines) {
+      const lineResult = await client.query<{ id: number }>(
+        `INSERT INTO recipe_lines
+           (recipe_id, ingredient_id, sort_order, target_total_cfu, default_grams, filler_mode, filler_ratio, cost_per_kg_gbp, default_cfu_option_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id`,
+        [
+          recipeId,
+          line.ingredientId,
+          line.sortOrder,
+          line.targetTotalCfu,
+          line.defaultGrams,
+          line.fillerMode,
+          line.fillerRatio,
+          line.costPerKgGbp,
+          line.defaultCfuOptionId,
+        ]
+      );
+      await logAction(client, "create_recipe_line", "recipe_lines", lineResult.rows[0].id, {
+        recipe_id: recipeId,
+        recipe_name: name,
+        ingredient_id: line.ingredientId,
+        sort_order: line.sortOrder,
+      });
+    }
+
+    await logAction(client, "update_recipe", "recipes", recipeId, {
+      name,
+      default_batch_grams: defaultBatchGrams,
+      line_count: lines.length,
+    });
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}

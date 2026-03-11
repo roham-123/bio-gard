@@ -2,10 +2,11 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Ingredient, CfuOption } from "@/lib/db";
+import type { Ingredient, CfuOption, RecipeWithLines } from "@/lib/db";
 import { parseScientific, formatCfu } from "@/lib/format";
 import {
   createRecipeAction,
+  updateRecipeAction,
   createIngredientAction,
   getIngredientCfuOptionsAction,
   addCfuOption,
@@ -63,6 +64,32 @@ function emptyLine(): BuilderLine {
   };
 }
 
+function lineFromRecipeLine(
+  rl: RecipeWithLines["lines"][number]
+): BuilderLine {
+  return {
+    uid: makeUid(),
+    ingredientId: rl.ingredient.id,
+    ingredientName: rl.ingredient.name,
+    isBacteria: rl.ingredient.is_bacteria,
+    fillerMode: rl.filler_mode,
+    fillerRatio: rl.filler_ratio ? String(rl.filler_ratio) : "",
+    targetTotalCfu: rl.target_total_cfu ? rl.target_total_cfu.toExponential() : "",
+    defaultGrams: rl.default_grams ? String(rl.default_grams) : "",
+    selectedStockId: rl.default_cfu_option_id ?? null,
+    cfuOptions: rl.cfu_options,
+    loadingOptions: false,
+    showNewIngredient: false,
+    newIngName: "",
+    newIngCode: "",
+    newIngIsBacteria: false,
+    showAddStock: false,
+    newStockLabel: "",
+    newStockCfu: "",
+    newStockPrice: "",
+  };
+}
+
 function stockOptionLabel(opt: CfuOption, isBacteria: boolean): string {
   if (isBacteria) {
     const parts = [opt.label, " \u2014 ", formatCfu(opt.cfu_per_gram)];
@@ -73,13 +100,24 @@ function stockOptionLabel(opt: CfuOption, isBacteria: boolean): string {
   return opt.label;
 }
 
-type Props = { ingredients: Ingredient[] };
+type Props = {
+  ingredients: Ingredient[];
+  existingRecipe?: RecipeWithLines;
+};
 
-export default function RecipeBuilder({ ingredients: initialIngredients }: Props) {
+export default function RecipeBuilder({ ingredients: initialIngredients, existingRecipe }: Props) {
   const router = useRouter();
-  const [recipeName, setRecipeName] = useState("");
-  const [batchSizeKg, setBatchSizeKg] = useState("");
-  const [lines, setLines] = useState<BuilderLine[]>([emptyLine()]);
+  const isEditMode = !!existingRecipe;
+
+  const [recipeName, setRecipeName] = useState(existingRecipe?.name ?? "");
+  const [batchSizeKg, setBatchSizeKg] = useState(
+    existingRecipe ? String(existingRecipe.default_batch_grams / 1000) : ""
+  );
+  const [lines, setLines] = useState<BuilderLine[]>(
+    existingRecipe && existingRecipe.lines.length > 0
+      ? existingRecipe.lines.map(lineFromRecipeLine)
+      : [emptyLine()]
+  );
   const [ingredients, setIngredients] = useState<Ingredient[]>(initialIngredients);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -245,10 +283,15 @@ export default function RecipeBuilder({ ingredients: initialIngredients }: Props
 
     setSaving(true);
     try {
-      const result = await createRecipeAction(name, batchGrams, lineInputs);
-      router.push(`/recipes/${result.id}`);
+      if (isEditMode) {
+        await updateRecipeAction(existingRecipe!.id, name, batchGrams, lineInputs);
+        router.push(`/recipes/${existingRecipe!.id}`);
+      } else {
+        const result = await createRecipeAction(name, batchGrams, lineInputs);
+        router.push(`/recipes/${result.id}`);
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create recipe");
+      setError(err instanceof Error ? err.message : isEditMode ? "Failed to update recipe" : "Failed to create recipe");
       setSaving(false);
     }
   }
@@ -480,7 +523,7 @@ export default function RecipeBuilder({ ingredients: initialIngredients }: Props
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={addRow} className={btnSecondary}>+ Add Row</button>
         <button type="button" onClick={handleSave} disabled={saving} className={btnPrimary}>
-          {saving ? "Saving..." : "Save Formula"}
+          {saving ? "Saving..." : isEditMode ? "Update Formula" : "Save Formula"}
         </button>
       </div>
     </div>
