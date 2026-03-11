@@ -603,7 +603,7 @@ export default function RecipeCalculator({ recipe }: Props) {
             onClick={() =>
               generateRecipePdf(recipe.name, batchGrams, units, result.results, {
                 totalGrams: result.totalGrams,
-                totalCfu: result.totalCfu,
+                totalCfu: totalFinalCfuPerGram,
                 totalCost: result.totalCost,
                 costPerKg: result.costPerKg,
                 costPerUnit: units > 0 ? result.totalCost / units : undefined,
