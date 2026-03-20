@@ -40,6 +40,13 @@ export default function RecipeCalculator({ recipe }: Props) {
     recipeToLineInputs(recipe)
   );
 
+  type PackagingProfile = "none" | "sachet-100g-pail" | "sachet-250g-pail";
+  const [packagingProfile, setPackagingProfile] = useState<PackagingProfile>("none");
+  const [pailCostPerUnit, setPailCostPerUnit] = useState(2.20);
+  const [labelCostPerUnit, setLabelCostPerUnit] = useState(0.40);
+  const [isEditingPackaging, setIsEditingPackaging] = useState(false);
+  const [packagingSnapshot, setPackagingSnapshot] = useState<{ pail: number; label: number }>({ pail: 2.20, label: 0.40 });
+
   const syncBatchFromInput = useCallback(() => {
     const parsedKg = parseScientific(batchInput);
     if (!Number.isNaN(parsedKg) && parsedKg > 0) {
@@ -95,6 +102,37 @@ export default function RecipeCalculator({ recipe }: Props) {
     () => (kgPerUnit > 0 ? batchGrams / 1000 / kgPerUnit : 0),
     [batchGrams, kgPerUnit]
   );
+
+  const packagingData = useMemo(() => {
+    if (packagingProfile === "none") return null;
+    const batchKg = batchGrams / 1000;
+    const sachetSizeKg = packagingProfile === "sachet-100g-pail" ? 0.1 : 0.25;
+
+    const sachetQty = batchKg > 0 ? Math.ceil(batchKg / sachetSizeKg) : 0;
+    let sachetCostPerUnit: number;
+    if (batchKg >= 100) sachetCostPerUnit = 0.10;
+    else if (batchKg >= 50) sachetCostPerUnit = 0.20;
+    else sachetCostPerUnit = 0.30;
+    const sachetCostPerKg = sachetSizeKg > 0 ? sachetCostPerUnit / sachetSizeKg : 0;
+    const sachetTotal = sachetQty * sachetCostPerUnit;
+
+    const pailQty = batchKg > 0 ? Math.ceil(batchKg / 10) : 0;
+    const pailCostPerKg = pailCostPerUnit / 10;
+    const pailTotal = pailQty * pailCostPerUnit;
+
+    const labelQty = pailQty;
+    const labelCostPerKg = labelCostPerUnit / 10;
+    const labelTotal = labelQty * labelCostPerUnit;
+
+    const grandTotal = sachetTotal + pailTotal + labelTotal;
+
+    return {
+      sachet: { label: "Sachet", qty: sachetQty, costPerUnit: sachetCostPerUnit, costPerKg: sachetCostPerKg, total: sachetTotal },
+      pail: { label: "10kg Pail", qty: pailQty, costPerUnit: pailCostPerUnit, costPerKg: pailCostPerKg, total: pailTotal },
+      labelRow: { label: "Label", qty: labelQty, costPerUnit: labelCostPerUnit, costPerKg: labelCostPerKg, total: labelTotal },
+      grandTotal,
+    };
+  }, [packagingProfile, batchGrams, pailCostPerUnit, labelCostPerUnit]);
 
   const handleAddCfuOption = useCallback(
     async (lineId: number, ingredientId: number) => {
@@ -551,6 +589,155 @@ export default function RecipeCalculator({ recipe }: Props) {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Packaging */}
+      <div className="rounded-xl border-2 border-zinc-200 bg-white p-6 shadow-md dark:border-zinc-600 dark:bg-zinc-800">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+            Packaging
+          </h2>
+          <div className="flex items-center gap-3">
+            <select
+              value={packagingProfile}
+              onChange={(e) => setPackagingProfile(e.target.value as PackagingProfile)}
+              className="min-w-[200px] rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100 dark:focus:bg-zinc-600"
+            >
+              <option value="none">Select packaging</option>
+              <option value="sachet-100g-pail">Sachets (100g) with Pail</option>
+              <option value="sachet-250g-pail">Sachets (250g) with Pail</option>
+            </select>
+            {packagingProfile !== "none" && (
+              isEditingPackaging ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingPackaging(false)}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-800"
+                  >
+                    Done
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPailCostPerUnit(packagingSnapshot.pail);
+                      setLabelCostPerUnit(packagingSnapshot.label);
+                      setIsEditingPackaging(false);
+                    }}
+                    className="rounded-lg border-2 border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPackagingSnapshot({ pail: pailCostPerUnit, label: labelCostPerUnit });
+                    setIsEditingPackaging(true);
+                  }}
+                  className="rounded-lg border-2 border-zinc-400 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+                >
+                  Edit
+                </button>
+              )
+            )}
+          </div>
+        </div>
+
+        {packagingProfile !== "none" && packagingData && (
+          <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-600">
+            <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
+              <thead>
+                <tr className="bg-zinc-100 dark:bg-zinc-700/80">
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Item</th>
+                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Quantity</th>
+                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/kg</th>
+                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/Unit</th>
+                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Total Cost</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
+                {/* Sachet row */}
+                <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+                  <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">{packagingData.sachet.label}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(packagingData.sachet.qty, { maxDecimals: 0 })}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.sachet.costPerKg)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.sachet.costPerUnit)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(packagingData.sachet.total)}</td>
+                </tr>
+                {/* Pail row */}
+                <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+                  <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">{packagingData.pail.label}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(packagingData.pail.qty, { maxDecimals: 0 })}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.pail.costPerKg)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums">
+                    {isEditingPackaging ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={pailCostPerUnit}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!Number.isNaN(v) && v >= 0) setPailCostPerUnit(v);
+                        }}
+                        className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                      />
+                    ) : (
+                      <span className="text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.pail.costPerUnit)}</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(packagingData.pail.total)}</td>
+                </tr>
+                {/* Label row */}
+                <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+                  <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">{packagingData.labelRow.label}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(packagingData.labelRow.qty, { maxDecimals: 0 })}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.labelRow.costPerKg)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums">
+                    {isEditingPackaging ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={labelCostPerUnit}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!Number.isNaN(v) && v >= 0) setLabelCostPerUnit(v);
+                        }}
+                        className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                      />
+                    ) : (
+                      <span className="text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.labelRow.costPerUnit)}</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(packagingData.labelRow.total)}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr className="bg-zinc-50 dark:bg-zinc-700/50">
+                  <td colSpan={2} className="px-4 py-3 text-left text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                    Total
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
+                    {batchGrams > 0 ? formatCurrency(packagingData.grandTotal / (batchGrams / 1000)) : "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
+                    {units > 0 ? formatCurrency(packagingData.grandTotal / units) : "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
+                    {formatCurrency(packagingData.grandTotal)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+
+        {packagingProfile === "none" && (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Select a packaging profile to calculate packaging costs.</p>
+        )}
       </div>
 
       {/* Totals + PDF */}
