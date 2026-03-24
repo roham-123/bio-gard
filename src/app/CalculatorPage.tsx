@@ -5,12 +5,20 @@ import Link from "next/link";
 import type { Recipe, RecipeWithLines } from "@/lib/db";
 import { getRecipe } from "@/app/actions";
 import RecipeCalculator from "@/app/recipes/[id]/RecipeCalculator";
+import type { CurrencyCode } from "@/lib/format";
 
 type Props = {
   recipes: Recipe[];
 };
 
 export default function CalculatorPage({ recipes }: Props) {
+  const [currency, setCurrency] = useState<CurrencyCode>("GBP");
+  const [rates, setRates] = useState<Record<CurrencyCode, number>>({
+    GBP: 1,
+    EUR: 1.17,
+    PLN: 5.05,
+  });
+  const [ratesUpdatedAt, setRatesUpdatedAt] = useState<string>("");
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -68,6 +76,42 @@ export default function CalculatorPage({ recipes }: Props) {
     if (id == null) setRecipe(null);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchRates = async () => {
+      try {
+        const res = await fetch("https://api.frankfurter.app/latest?from=GBP&to=EUR,PLN");
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          date?: string;
+          rates?: { EUR?: number; PLN?: number };
+        };
+        if (cancelled || !data.rates) return;
+        setRates((prev) => ({
+          ...prev,
+          GBP: 1,
+          EUR: data.rates?.EUR ?? prev.EUR,
+          PLN: data.rates?.PLN ?? prev.PLN,
+        }));
+        setRatesUpdatedAt(data.date ?? "");
+      } catch {
+        // Keep existing/fallback rates if the API fails.
+      }
+    };
+
+    void fetchRates();
+    const id = window.setInterval(fetchRates, 10 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const activeRate = rates[currency] ?? 1;
+  const fxRate = Number.isFinite(activeRate) && activeRate > 0 ? activeRate : 1;
+
   return (
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6 lg:px-8">
       <div className="rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 sm:p-8">
@@ -78,6 +122,30 @@ export default function CalculatorPage({ recipes }: Props) {
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             Select a formula, set batch size, and adjust CFU options and costs.
           </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+              Currency
+            </span>
+            {(["GBP", "EUR", "PLN"] as CurrencyCode[]).map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setCurrency(code)}
+                className={[
+                  "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+                  currency === code
+                    ? "border-emerald-600 bg-emerald-600 text-white dark:border-emerald-500 dark:bg-emerald-500"
+                    : "border-zinc-300 bg-zinc-50 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600",
+                ].join(" ")}
+              >
+                {code}
+              </button>
+            ))}
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              Live rate: 1 GBP = {fxRate.toFixed(4)} {currency}
+              {ratesUpdatedAt ? ` (updated ${ratesUpdatedAt})` : ""}
+            </span>
+          </div>
           <div className="mt-6 flex flex-wrap items-center gap-4">
             <input
               type="search"
@@ -130,7 +198,14 @@ export default function CalculatorPage({ recipes }: Props) {
               </p>
             </div>
           )}
-          {!loading && recipe && selectionInFiltered && <RecipeCalculator recipe={recipe} />}
+          {!loading && recipe && selectionInFiltered && (
+            <RecipeCalculator
+              key={`${recipe.id}-${currency}`}
+              recipe={recipe}
+              currency={currency}
+              gbpToCurrencyRate={fxRate}
+            />
+          )}
           {!loading && !recipe && selectedId != null && (
             <div className="py-16 text-center">
               <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">

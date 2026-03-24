@@ -10,7 +10,16 @@ import {
   type LineInput,
   type LineResult,
 } from "@/lib/calc";
-import { formatGrams, formatKg, formatCfu, formatPercent, formatCurrency, formatNumber, parseScientific } from "@/lib/format";
+import {
+  formatGrams,
+  formatKg,
+  formatCfu,
+  formatPercent,
+  formatCurrency,
+  formatNumber,
+  parseScientific,
+  type CurrencyCode,
+} from "@/lib/format";
 import { generateRecipePdf } from "@/lib/pdf";
 import {
   addCfuOption,
@@ -21,9 +30,11 @@ import {
 
 type Props = {
   recipe: RecipeWithLines;
+  currency: CurrencyCode;
+  gbpToCurrencyRate: number;
 };
 
-export default function RecipeCalculator({ recipe }: Props) {
+export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }: Props) {
   const defaultBatchGrams = Number(recipe.default_batch_grams);
   const [batchGrams, setBatchGrams] = useState(defaultBatchGrams);
   const [batchInput, setBatchInput] = useState(String(defaultBatchGrams / 1000));
@@ -134,12 +145,27 @@ export default function RecipeCalculator({ recipe }: Props) {
     };
   }, [packagingProfile, batchGrams, pailCostPerUnit, labelCostPerUnit]);
 
+  const packagingTotalCost = packagingData?.grandTotal ?? 0;
+  const packagingCostPerKg = batchGrams > 0 ? packagingTotalCost / (batchGrams / 1000) : 0;
+  const packagingCostPerUnit = units > 0 ? packagingTotalCost / units : 0;
+
+  const formulaTotalCost = result.totalCost;
+  const formulaCostPerKg = batchGrams > 0 ? formulaTotalCost / (batchGrams / 1000) : 0;
+  const formulaCostPerUnit = units > 0 ? formulaTotalCost / units : 0;
+
+  const finalTotalCost = formulaTotalCost + packagingTotalCost;
+  const finalCostPerKg = formulaCostPerKg + packagingCostPerKg;
+  const finalCostPerUnit = formulaCostPerUnit + packagingCostPerUnit;
+
   const handleAddCfuOption = useCallback(
     async (lineId: number, ingredientId: number) => {
       const cfu = parseScientific(newCfuPerGram);
       if (!newCfuLabel.trim() || Number.isNaN(cfu) || cfu < 0) return;
       const price = newCfuPrice.trim() === "" ? null : parseScientific(newCfuPrice);
-      const priceGbp = price != null && !Number.isNaN(price) && price >= 0 ? price : null;
+      const priceGbp =
+        price != null && !Number.isNaN(price) && price >= 0
+          ? (gbpToCurrencyRate > 0 ? price / gbpToCurrencyRate : price)
+          : null;
       const added = await addCfuOption(ingredientId, newCfuLabel.trim(), cfu, priceGbp);
       if (added) {
         setLineInputs((prev) =>
@@ -167,7 +193,7 @@ export default function RecipeCalculator({ recipe }: Props) {
         setNewCfuPrice("");
       }
     },
-    [newCfuLabel, newCfuPerGram, newCfuPrice]
+    [newCfuLabel, newCfuPerGram, newCfuPrice, gbpToCurrencyRate]
   );
 
   const handleDeleteCfuOption = useCallback(
@@ -234,6 +260,13 @@ export default function RecipeCalculator({ recipe }: Props) {
       prev.map((l) => (l.lineId === lineId ? { ...l, costPerKgGbp: value } : l))
     );
   }, []);
+
+  const displayRate =
+    Number.isFinite(gbpToCurrencyRate) && gbpToCurrencyRate > 0 ? gbpToCurrencyRate : 1;
+  const toDisplayCurrency = (gbpValue: number) => Number(gbpValue) * displayRate;
+  const toGbpFromDisplay = (displayValue: number) => Number(displayValue) / displayRate;
+  const formatDisplayCurrency = (gbpValue: number) =>
+    formatCurrency(toDisplayCurrency(Number(gbpValue)), currency);
 
   return (
     <div className="space-y-6">
@@ -504,7 +537,7 @@ export default function RecipeCalculator({ recipe }: Props) {
                                   className="w-20 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-600 dark:text-zinc-100"
                                 />
                                 <input
-                                  placeholder="Price (£)"
+                                  placeholder={`Price (${currency})`}
                                   value={newCfuPrice}
                                   onChange={(e) => setNewCfuPrice(e.target.value)}
                                   className="w-20 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-600 dark:text-zinc-100"
@@ -569,26 +602,112 @@ export default function RecipeCalculator({ recipe }: Props) {
                     {isEditingCosts ? (
                       <input
                         type="text"
-                        value={line.costPerKgGbp}
+                        value={formatNumber(toDisplayCurrency(line.costPerKgGbp), { maxDecimals: 4 })}
                         onChange={(e) =>
-                          setLineCost(line.lineId, parseScientific(e.target.value))
+                          setLineCost(line.lineId, toGbpFromDisplay(parseScientific(e.target.value)))
                         }
                               className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
                       />
                     ) : (
                       <span className="text-zinc-700 dark:text-zinc-300">
-                        {formatCurrency(line.costPerKgGbp)}
+                        {formatDisplayCurrency(line.costPerKgGbp)}
                       </span>
                     )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {res ? formatCurrency(res.costInProduct) : "—"}
+                    {res ? formatDisplayCurrency(res.costInProduct) : "—"}
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* formula sumarry + PDF */}
+      <div
+        className={[
+          "rounded-xl border-2 p-6 shadow-md",
+          result.formulaValid
+            ? "border-zinc-200 bg-zinc-50/80 dark:border-zinc-600 dark:bg-zinc-800/50"
+            : "border-red-200 bg-red-50/60 dark:border-red-800 dark:bg-red-950/30",
+        ].join(" ")}
+      >
+        <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+          formula sumarry
+          {!result.formulaValid && (
+            <span className="ml-2 rounded bg-red-100 px-2 py-0.5 text-xs font-bold uppercase text-red-700 dark:bg-red-900/50 dark:text-red-300">
+              Invalid
+            </span>
+          )}
+        </h2>
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total grams</dt>
+            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+              {formatKg(result.totalGrams / 1000)} kg ({formatGrams(result.totalGrams)} g)
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total final CFU/g</dt>
+            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{formatCfu(totalFinalCfuPerGram)}</dd>
+          </div>
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total cost</dt>
+            <dd
+              className={`font-semibold tabular-nums ${
+                result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
+              }`}
+            >
+              {result.formulaValid
+                ? formatDisplayCurrency(result.totalCost)
+                : `~${formatDisplayCurrency(result.totalCost)} (partial)`}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per kg</dt>
+            <dd
+              className={`font-semibold tabular-nums ${
+                result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
+              }`}
+            >
+              {result.formulaValid ? formatDisplayCurrency(result.costPerKg) : "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4 sm:block">
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per unit</dt>
+            <dd
+              className={`font-semibold tabular-nums ${
+                result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
+              }`}
+            >
+              {result.formulaValid && units > 0 ? formatDisplayCurrency(result.totalCost / units) : "—"}
+            </dd>
+          </div>
+        </dl>
+        <div className="mt-6">
+          <button
+            type="button"
+            disabled={!result.formulaValid}
+            onClick={() =>
+              generateRecipePdf(recipe.name, batchGrams, units, result.results, {
+                totalGrams: result.totalGrams,
+                totalCfu: totalFinalCfuPerGram,
+                totalCost: result.totalCost,
+                costPerKg: result.costPerKg,
+                costPerUnit: units > 0 ? result.totalCost / units : undefined,
+              })
+            }
+            className={[
+              "rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2",
+              result.formulaValid
+                ? "bg-zinc-800 text-white hover:bg-zinc-700 focus:ring-zinc-500 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+                : "cursor-not-allowed bg-zinc-300 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-500",
+            ].join(" ")}
+          >
+            {result.formulaValid ? "Generate PDF" : "PDF unavailable — fix formula"}
+          </button>
+        </div>
       </div>
 
       {/* Packaging */}
@@ -662,57 +781,57 @@ export default function RecipeCalculator({ recipe }: Props) {
                 <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">{packagingData.sachet.label}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(packagingData.sachet.qty, { maxDecimals: 0 })}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.sachet.costPerKg)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.sachet.costPerUnit)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(packagingData.sachet.total)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.sachet.costPerKg)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.sachet.costPerUnit)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatDisplayCurrency(packagingData.sachet.total)}</td>
                 </tr>
                 {/* Pail row */}
                 <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">{packagingData.pail.label}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(packagingData.pail.qty, { maxDecimals: 0 })}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.pail.costPerKg)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.pail.costPerKg)}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums">
                     {isEditingPackaging ? (
                       <input
                         type="number"
                         step="0.01"
                         min="0"
-                        value={pailCostPerUnit}
+                        value={toDisplayCurrency(pailCostPerUnit)}
                         onChange={(e) => {
                           const v = parseFloat(e.target.value);
-                          if (!Number.isNaN(v) && v >= 0) setPailCostPerUnit(v);
+                          if (!Number.isNaN(v) && v >= 0) setPailCostPerUnit(toGbpFromDisplay(v));
                         }}
                         className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
                       />
                     ) : (
-                      <span className="text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.pail.costPerUnit)}</span>
+                      <span className="text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.pail.costPerUnit)}</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(packagingData.pail.total)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatDisplayCurrency(packagingData.pail.total)}</td>
                 </tr>
                 {/* Label row */}
                 <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">{packagingData.labelRow.label}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(packagingData.labelRow.qty, { maxDecimals: 0 })}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.labelRow.costPerKg)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.labelRow.costPerKg)}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums">
                     {isEditingPackaging ? (
                       <input
                         type="number"
                         step="0.01"
                         min="0"
-                        value={labelCostPerUnit}
+                        value={toDisplayCurrency(labelCostPerUnit)}
                         onChange={(e) => {
                           const v = parseFloat(e.target.value);
-                          if (!Number.isNaN(v) && v >= 0) setLabelCostPerUnit(v);
+                          if (!Number.isNaN(v) && v >= 0) setLabelCostPerUnit(toGbpFromDisplay(v));
                         }}
                         className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
                       />
                     ) : (
-                      <span className="text-zinc-700 dark:text-zinc-300">{formatCurrency(packagingData.labelRow.costPerUnit)}</span>
+                      <span className="text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.labelRow.costPerUnit)}</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(packagingData.labelRow.total)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatDisplayCurrency(packagingData.labelRow.total)}</td>
                 </tr>
               </tbody>
               <tfoot>
@@ -721,13 +840,13 @@ export default function RecipeCalculator({ recipe }: Props) {
                     Total
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
-                    {batchGrams > 0 ? formatCurrency(packagingData.grandTotal / (batchGrams / 1000)) : "—"}
+                    {batchGrams > 0 ? formatDisplayCurrency(packagingData.grandTotal / (batchGrams / 1000)) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
-                    {units > 0 ? formatCurrency(packagingData.grandTotal / units) : "—"}
+                    {units > 0 ? formatDisplayCurrency(packagingData.grandTotal / units) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
-                    {formatCurrency(packagingData.grandTotal)}
+                    {formatDisplayCurrency(packagingData.grandTotal)}
                   </td>
                 </tr>
               </tfoot>
@@ -740,7 +859,7 @@ export default function RecipeCalculator({ recipe }: Props) {
         )}
       </div>
 
-      {/* Totals + PDF */}
+      {/* Final product summary */}
       <div
         className={[
           "rounded-xl border-2 p-6 shadow-md",
@@ -750,7 +869,7 @@ export default function RecipeCalculator({ recipe }: Props) {
         ].join(" ")}
       >
         <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-          Summary
+          Final product summary
           {!result.formulaValid && (
             <span className="ml-2 rounded bg-red-100 px-2 py-0.5 text-xs font-bold uppercase text-red-700 dark:bg-red-900/50 dark:text-red-300">
               Invalid
@@ -759,60 +878,46 @@ export default function RecipeCalculator({ recipe }: Props) {
         </h2>
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div className="flex justify-between gap-4 sm:block">
-            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total grams</dt>
-            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-              {formatKg(result.totalGrams / 1000)} kg (
-              {formatGrams(result.totalGrams)} g)
-            </dd>
-          </div>
-          <div className="flex justify-between gap-4 sm:block">
-            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total final CFU/g</dt>
-            <dd className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-              {formatCfu(totalFinalCfuPerGram)}
-            </dd>
-          </div>
-          <div className="flex justify-between gap-4 sm:block">
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Total cost</dt>
-            <dd className={`font-semibold tabular-nums ${result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"}`}>
-              {result.formulaValid ? formatCurrency(result.totalCost) : `~${formatCurrency(result.totalCost)} (partial)`}
+            <dd
+              className={`font-semibold tabular-nums ${
+                result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
+              }`}
+            >
+              {result.formulaValid
+                ? formatDisplayCurrency(finalTotalCost)
+                : `~${formatDisplayCurrency(finalTotalCost)} (partial)`}
             </dd>
           </div>
           <div className="flex justify-between gap-4 sm:block">
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per kg</dt>
-            <dd className={`font-semibold tabular-nums ${result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"}`}>
-              {result.formulaValid ? formatCurrency(result.costPerKg) : "—"}
+            <dd
+              className={`font-semibold tabular-nums ${
+                result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
+              }`}
+            >
+              {batchGrams > 0
+                ? result.formulaValid
+                  ? formatDisplayCurrency(finalCostPerKg)
+                  : `~${formatDisplayCurrency(finalCostPerKg)}`
+                : "—"}
             </dd>
           </div>
           <div className="flex justify-between gap-4 sm:block">
             <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per unit</dt>
-            <dd className={`font-semibold tabular-nums ${result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"}`}>
-              {result.formulaValid && units > 0 ? formatCurrency(result.totalCost / units) : "—"}
+            <dd
+              className={`font-semibold tabular-nums ${
+                result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
+              }`}
+            >
+              {units > 0
+                ? result.formulaValid
+                  ? formatDisplayCurrency(finalCostPerUnit)
+                  : `~${formatDisplayCurrency(finalCostPerUnit)}`
+                : "—"}
             </dd>
           </div>
         </dl>
-        <div className="mt-6">
-          <button
-            type="button"
-            disabled={!result.formulaValid}
-            onClick={() =>
-              generateRecipePdf(recipe.name, batchGrams, units, result.results, {
-                totalGrams: result.totalGrams,
-                totalCfu: totalFinalCfuPerGram,
-                totalCost: result.totalCost,
-                costPerKg: result.costPerKg,
-                costPerUnit: units > 0 ? result.totalCost / units : undefined,
-              })
-            }
-            className={[
-              "rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2",
-              result.formulaValid
-                ? "bg-zinc-800 text-white hover:bg-zinc-700 focus:ring-zinc-500 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
-                : "cursor-not-allowed bg-zinc-300 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-500",
-            ].join(" ")}
-          >
-            {result.formulaValid ? "Generate PDF" : "PDF unavailable — fix formula"}
-          </button>
-        </div>
       </div>
     </div>
   );

@@ -56,6 +56,14 @@ export function formatPercent(value: unknown): string {
   return (toNum(value) * 100).toFixed(2) + "%";
 }
 
-export function formatCurrency(value: unknown): string {
-  return "£" + toNum(value).toFixed(2);
+export type CurrencyCode = "GBP" | "EUR" | "PLN";
+
+export function formatCurrency(value: unknown, currency: CurrencyCode = "GBP"): string {
+  const n = toNum(value);
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
 }
