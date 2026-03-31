@@ -2,38 +2,32 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Ingredient, CfuOption, RecipeWithLines } from "@/lib/db";
+import type { Ingredient, RecipeWithLines } from "@/lib/db";
 import { parseScientific, formatCfu } from "@/lib/format";
 import {
   createRecipeAction,
   updateRecipeAction,
   createIngredientAction,
-  getIngredientCfuOptionsAction,
-  addCfuOption,
 } from "@/app/actions";
 
 type FillerMode = "fixed" | "ratio" | "remainder";
 
 type BuilderLine = {
   uid: string;
-  ingredientId: number | null;
+  ingredientId: string | null;
   ingredientName: string;
   isBacteria: boolean;
+  stockCfuPerG: number;
+  costPerKgGbp: number;
   fillerMode: FillerMode;
   fillerRatio: string;
   targetTotalCfu: string;
   defaultGrams: string;
-  selectedStockId: number | null;
-  cfuOptions: CfuOption[];
-  loadingOptions: boolean;
   showNewIngredient: boolean;
+  newIngId: string;
   newIngName: string;
-  newIngCode: string;
-  newIngIsBacteria: boolean;
-  showAddStock: boolean;
-  newStockLabel: string;
-  newStockCfu: string;
-  newStockPrice: string;
+  newIngStockCfu: string;
+  newIngCostPerKg: string;
 };
 
 function makeUid(): string {
@@ -46,58 +40,41 @@ function emptyLine(): BuilderLine {
     ingredientId: null,
     ingredientName: "",
     isBacteria: false,
+    stockCfuPerG: 0,
+    costPerKgGbp: 0,
     fillerMode: "fixed",
     fillerRatio: "",
     targetTotalCfu: "",
     defaultGrams: "",
-    selectedStockId: null,
-    cfuOptions: [],
-    loadingOptions: false,
     showNewIngredient: false,
+    newIngId: "",
     newIngName: "",
-    newIngCode: "",
-    newIngIsBacteria: false,
-    showAddStock: false,
-    newStockLabel: "",
-    newStockCfu: "",
-    newStockPrice: "",
+    newIngStockCfu: "",
+    newIngCostPerKg: "",
   };
 }
 
 function lineFromRecipeLine(
   rl: RecipeWithLines["lines"][number]
 ): BuilderLine {
+  const isBacteria = rl.ingredient.stock_cfu_per_g > 0;
   return {
     uid: makeUid(),
     ingredientId: rl.ingredient.id,
     ingredientName: rl.ingredient.name,
-    isBacteria: rl.ingredient.is_bacteria,
+    isBacteria,
+    stockCfuPerG: rl.ingredient.stock_cfu_per_g,
+    costPerKgGbp: rl.ingredient.cost_per_kg_gbp,
     fillerMode: rl.filler_mode,
     fillerRatio: rl.filler_ratio ? String(rl.filler_ratio) : "",
     targetTotalCfu: rl.target_total_cfu ? rl.target_total_cfu.toExponential() : "",
     defaultGrams: rl.default_grams ? String(rl.default_grams) : "",
-    selectedStockId: rl.default_cfu_option_id ?? null,
-    cfuOptions: rl.cfu_options,
-    loadingOptions: false,
     showNewIngredient: false,
+    newIngId: "",
     newIngName: "",
-    newIngCode: "",
-    newIngIsBacteria: false,
-    showAddStock: false,
-    newStockLabel: "",
-    newStockCfu: "",
-    newStockPrice: "",
+    newIngStockCfu: "",
+    newIngCostPerKg: "",
   };
-}
-
-function stockOptionLabel(opt: CfuOption, isBacteria: boolean): string {
-  if (isBacteria) {
-    const parts = [opt.label, " \u2014 ", formatCfu(opt.cfu_per_gram)];
-    if (opt.price_gbp != null) parts.push(` (\u00A3${opt.price_gbp})`);
-    return parts.join("");
-  }
-  if (opt.price_gbp != null) return `${opt.label} \u2014 \u00A3${opt.price_gbp}/kg`;
-  return opt.label;
 }
 
 type Props = {
@@ -126,121 +103,52 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
     setLines((prev) => prev.map((l) => (l.uid === lineUid ? { ...l, ...patch } : l)));
   }
 
-  async function handleIngredientSelect(lineUid: string, value: string) {
+  function handleIngredientSelect(lineUid: string, value: string) {
     if (value === "__new__") {
       updateLine(lineUid, { showNewIngredient: true, ingredientId: null, ingredientName: "" });
       return;
     }
-    const id = Number(value);
-    const ing = ingredients.find((i) => i.id === id);
+    const ing = ingredients.find((i) => i.id === value);
     if (!ing) return;
+    const isBacteria = ing.stock_cfu_per_g > 0;
     updateLine(lineUid, {
       ingredientId: ing.id,
       ingredientName: ing.name,
-      isBacteria: ing.is_bacteria,
-      fillerMode: ing.is_bacteria ? "fixed" : "fixed",
+      isBacteria,
+      stockCfuPerG: ing.stock_cfu_per_g,
+      costPerKgGbp: ing.cost_per_kg_gbp,
+      fillerMode: isBacteria ? "fixed" : "fixed",
       showNewIngredient: false,
-      loadingOptions: true,
-      cfuOptions: [],
-      selectedStockId: null,
-    });
-    const options = await getIngredientCfuOptionsAction(ing.id);
-    const defaultOpt = options.find((o) => o.is_default) ?? options[0] ?? null;
-    updateLine(lineUid, {
-      cfuOptions: options,
-      loadingOptions: false,
-      selectedStockId: defaultOpt?.id ?? null,
     });
   }
 
   async function handleCreateIngredient(line: BuilderLine) {
+    const id = line.newIngId.trim();
     const name = line.newIngName.trim();
-    if (!name) return;
+    if (!id) { setError("Ingredient ID is required."); return; }
+    if (!name) { setError("Ingredient name is required."); return; }
+    const stockCfu = parseScientific(line.newIngStockCfu) || 0;
+    const costPerKg = parseScientific(line.newIngCostPerKg) || 0;
     try {
-      const ing = await createIngredientAction(
-        name,
-        line.newIngIsBacteria,
-        line.newIngCode.trim() || null,
-        0
-      );
+      const ing = await createIngredientAction(id, name, stockCfu, costPerKg);
       setIngredients((prev) => [...prev, ing].sort((a, b) => a.name.localeCompare(b.name)));
+      const isBacteria = ing.stock_cfu_per_g > 0;
       updateLine(line.uid, {
         ingredientId: ing.id,
         ingredientName: ing.name,
-        isBacteria: ing.is_bacteria,
-        fillerMode: ing.is_bacteria ? "fixed" : "fixed",
+        isBacteria,
+        stockCfuPerG: ing.stock_cfu_per_g,
+        costPerKgGbp: ing.cost_per_kg_gbp,
+        fillerMode: isBacteria ? "fixed" : "fixed",
         showNewIngredient: false,
+        newIngId: "",
         newIngName: "",
-        newIngCode: "",
-        newIngIsBacteria: false,
-        cfuOptions: [],
-        selectedStockId: null,
+        newIngStockCfu: "",
+        newIngCostPerKg: "",
       });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to create ingredient");
     }
-  }
-
-  async function handleAddStock(line: BuilderLine) {
-    if (!line.ingredientId) return;
-    const label = line.newStockLabel.trim();
-    if (!label) {
-      setError("Stock option label is required.");
-      return;
-    }
-
-    let cfuVal = 0;
-    let priceGbp: number | null = null;
-
-    if (line.isBacteria) {
-      const cfu = parseScientific(line.newStockCfu);
-      if (Number.isNaN(cfu) || cfu < 0) {
-        setError("CFU/g must be a valid number.");
-        return;
-      }
-      cfuVal = cfu;
-      const price = line.newStockPrice.trim() === "" ? null : parseScientific(line.newStockPrice);
-      priceGbp = price != null && !Number.isNaN(price) && price >= 0 ? price : null;
-    } else {
-      const price = parseScientific(line.newStockPrice);
-      if (Number.isNaN(price) || price < 0) {
-        setError("Cost/kg must be a valid number.");
-        return;
-      }
-      priceGbp = price;
-    }
-
-    try {
-      const added = await addCfuOption(line.ingredientId, label, cfuVal, priceGbp);
-      if (added) {
-        setLines((prev) =>
-          prev.map((l) =>
-            l.uid === line.uid
-              ? {
-                  ...l,
-                  cfuOptions: [...l.cfuOptions, added],
-                  selectedStockId: added.id,
-                  showAddStock: false,
-                  newStockLabel: "",
-                  newStockCfu: "",
-                  newStockPrice: "",
-                }
-              : l
-          )
-        );
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to add stock option");
-    }
-  }
-
-  function handleIsBacteriaToggle(lineUid: string, checked: boolean) {
-    updateLine(lineUid, {
-      isBacteria: checked,
-      fillerMode: checked ? "fixed" : "fixed",
-      fillerRatio: "",
-      targetTotalCfu: checked ? undefined : "",
-    });
   }
 
   const addRow = useCallback(() => setLines((prev) => [...prev, emptyLine()]), []);
@@ -261,11 +169,9 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
 
     const lineInputs = validLines.map((l, idx) => {
       const targetCfu = parseScientific(l.targetTotalCfu) || 0;
-      const selectedOpt = l.cfuOptions.find((o) => o.id === l.selectedStockId);
       let defaultGrams = 0;
       if (l.isBacteria) {
-        const cfuPerG = selectedOpt?.cfu_per_gram ?? 0;
-        defaultGrams = cfuPerG > 0 ? targetCfu / cfuPerG : 0;
+        defaultGrams = l.stockCfuPerG > 0 ? targetCfu / l.stockCfuPerG : 0;
       } else {
         defaultGrams = parseScientific(l.defaultGrams) || 0;
       }
@@ -274,10 +180,8 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
         sortOrder: idx + 1,
         targetTotalCfu: targetCfu,
         defaultGrams,
-        fillerMode: l.fillerMode,
+        fillerMode: l.fillerMode as "fixed" | "ratio" | "remainder",
         fillerRatio: l.fillerMode === "ratio" ? parseScientific(l.fillerRatio) || 0 : 0,
-        costPerKgGbp: selectedOpt?.price_gbp ?? null,
-        defaultCfuOptionId: l.selectedStockId,
       };
     });
 
@@ -364,12 +268,13 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
             <tr className="bg-zinc-100 dark:bg-zinc-700/80">
               <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">#</th>
               <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Ingredient</th>
-              <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Is Bacteria</th>
+              <th className="px-3 py-3 text-center text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Type</th>
+              <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Stock CFU/g</th>
+              <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/kg</th>
               <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Mode</th>
               <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Ratio</th>
               <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Target CFU</th>
               <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Default g</th>
-              <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Stock Option</th>
               <th className="px-3 py-3" />
             </tr>
           </thead>
@@ -391,37 +296,55 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
                       <option value="__new__">+ Create new ingredient</option>
                       {ingredients.map((i) => (
                         <option key={i.id} value={i.id}>
-                          {i.is_bacteria ? "\u{1F9EC} " : ""}{i.code ? `[${i.code}] ` : ""}{i.name}
+                          {i.stock_cfu_per_g > 0 ? "\u{1F9EC} " : ""}[{i.id}] {i.name}
                         </option>
                       ))}
                     </select>
                     {line.showNewIngredient && (
                       <div className="space-y-1.5 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 dark:border-zinc-600 dark:bg-zinc-700/50">
-                        <input placeholder="Ingredient name" value={line.newIngName}
+                        <input placeholder="ID (e.g. PRO0235-1E11)" value={line.newIngId}
+                          onChange={(e) => updateLine(line.uid, { newIngId: e.target.value })}
+                          className={`${inputCls} w-full`} />
+                        <input placeholder="Name" value={line.newIngName}
                           onChange={(e) => updateLine(line.uid, { newIngName: e.target.value })}
                           className={`${inputCls} w-full`} />
-                        <input placeholder="Code (optional)" value={line.newIngCode}
-                          onChange={(e) => updateLine(line.uid, { newIngCode: e.target.value })}
+                        <input placeholder="Stock CFU/g (0 for filler)" value={line.newIngStockCfu}
+                          onChange={(e) => updateLine(line.uid, { newIngStockCfu: e.target.value })}
                           className={`${inputCls} w-full`} />
-                        <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                          <input type="checkbox" checked={line.newIngIsBacteria}
-                            onChange={(e) => updateLine(line.uid, { newIngIsBacteria: e.target.checked })}
-                            className="size-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500 dark:border-zinc-600" />
-                          Bacteria
-                        </label>
+                        <input placeholder="Cost/kg (£)" value={line.newIngCostPerKg}
+                          onChange={(e) => updateLine(line.uid, { newIngCostPerKg: e.target.value })}
+                          className={`${inputCls} w-full`} />
                         <div className="flex gap-1.5">
                           <button type="button" onClick={() => handleCreateIngredient(line)} className={btnPrimary}>Create</button>
-                          <button type="button" onClick={() => updateLine(line.uid, { showNewIngredient: false, newIngName: "" })} className={btnSecondary}>Cancel</button>
+                          <button type="button" onClick={() => updateLine(line.uid, { showNewIngredient: false, newIngId: "", newIngName: "" })} className={btnSecondary}>Cancel</button>
                         </div>
                       </div>
                     )}
                   </div>
                 </td>
 
-                <td className="px-3 py-3 text-center">
-                  <input type="checkbox" checked={line.isBacteria}
-                    onChange={(e) => handleIsBacteriaToggle(line.uid, e.target.checked)}
-                    className="size-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500 dark:border-zinc-600" />
+                <td className="px-3 py-3 text-center text-xs font-semibold">
+                  {line.ingredientId ? (
+                    line.isBacteria ? (
+                      <span className="rounded bg-emerald-100 px-2 py-1 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                        Bacteria
+                      </span>
+                    ) : (
+                      <span className="rounded bg-zinc-200 px-2 py-1 text-zinc-600 dark:bg-zinc-600 dark:text-zinc-300">
+                        Filler
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-zinc-400">—</span>
+                  )}
+                </td>
+
+                <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
+                  {line.ingredientId && line.isBacteria ? formatCfu(line.stockCfuPerG) : "—"}
+                </td>
+
+                <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
+                  {line.ingredientId ? `£${line.costPerKgGbp.toFixed(2)}` : "—"}
                 </td>
 
                 <td className="px-3 py-3 text-sm">
@@ -456,56 +379,6 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
                       className={`${inputCls} w-24 text-right`} />
                   ) : (
                     <span className="text-xs text-zinc-400">{line.isBacteria ? "auto" : "\u2014"}</span>
-                  )}
-                </td>
-
-                <td className="px-3 py-3 text-sm">
-                  {line.ingredientId ? (
-                    <div className="space-y-1.5">
-                      {line.loadingOptions ? (
-                        <span className="text-xs text-zinc-400">Loading...</span>
-                      ) : line.cfuOptions.length > 0 ? (
-                        <select value={line.selectedStockId ?? ""}
-                          onChange={(e) => updateLine(line.uid, { selectedStockId: e.target.value ? Number(e.target.value) : null })}
-                          className={`${selectCls} min-w-[180px]`}>
-                          <option value="">No stock selected</option>
-                          {line.cfuOptions.map((opt) => (
-                            <option key={opt.id} value={opt.id}>{stockOptionLabel(opt, line.isBacteria)}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-xs text-zinc-400">No stock options</span>
-                      )}
-                      {line.showAddStock ? (
-                        <div className="space-y-1 rounded border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-600 dark:bg-zinc-700/50">
-                          <input placeholder="Label" value={line.newStockLabel}
-                            onChange={(e) => updateLine(line.uid, { newStockLabel: e.target.value })}
-                            className={`${inputCls} w-full !py-1 !text-xs`} />
-                          {line.isBacteria && (
-                            <input placeholder="CFU/g (e.g. 1e11)" value={line.newStockCfu}
-                              onChange={(e) => updateLine(line.uid, { newStockCfu: e.target.value })}
-                              className={`${inputCls} w-full !py-1 !text-xs`} />
-                          )}
-                          <input placeholder={line.isBacteria ? "Price \u00A3/kg (optional)" : "Cost \u00A3/kg"}
-                            value={line.newStockPrice}
-                            onChange={(e) => updateLine(line.uid, { newStockPrice: e.target.value })}
-                            className={`${inputCls} w-full !py-1 !text-xs`} />
-                          <div className="flex gap-1">
-                            <button type="button" onClick={() => handleAddStock(line)}
-                              className="rounded bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700">Add</button>
-                            <button type="button" onClick={() => updateLine(line.uid, { showAddStock: false })}
-                              className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 dark:border-zinc-600 dark:text-zinc-300">Cancel</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button type="button" onClick={() => updateLine(line.uid, { showAddStock: true })}
-                          className="text-xs font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400">
-                          + Add stock option
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-zinc-400">Select ingredient first</span>
                   )}
                 </td>
 

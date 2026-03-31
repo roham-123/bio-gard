@@ -33,6 +33,7 @@ export function generateRecipePdf(
   y += 10;
 
   const headers = [
+    "ID",
     "Ingredient",
     "g",
     "kg",
@@ -45,12 +46,13 @@ export function generateRecipePdf(
     "Cost",
   ];
   const rows = results.map((r) => [
-    (r.ingredientCode ? `[${r.ingredientCode}] ` : "") + r.ingredientName,
+    r.ingredientId,
+    r.ingredientName,
     formatGrams(r.grams),
     formatKg(r.grams / 1000),
     units > 0 ? formatGrams(r.grams / units) : "—",
     formatPercent(r.percent),
-    r.isBacteria ? formatCfu(r.cfuPerGram) : "—",
+    r.isBacteria ? formatCfu(r.stockCfuPerG) : "—",
     r.isBacteria ? formatCfu(r.targetTotalCfu) : "—",
     r.isBacteria ? formatCfu(r.finalCfuPerGram) : "—",
     formatCurrency(r.costPerKgGbp),
@@ -61,7 +63,7 @@ export function generateRecipePdf(
     startY: y,
     head: [headers],
     body: rows,
-    styles: { fontSize: 8 },
+    styles: { fontSize: 7 },
     margin: { left: 14 },
     tableWidth: "auto",
   });

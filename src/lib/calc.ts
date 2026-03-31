@@ -4,44 +4,36 @@ export type FillerMode = "fixed" | "ratio" | "remainder";
 
 export type LineInput = {
   lineId: number;
-  ingredientId: number;
+  ingredientId: string;
   ingredientName: string;
-  ingredientCode: string | null;
   isBacteria: boolean;
+  stockCfuPerG: number;
   costPerKgGbp: number;
   targetTotalCfu: number;
   defaultGrams: number;
   fillerMode: FillerMode;
   fillerRatio: number;
   sortOrder: number;
-  /** Selected CFU option id (for bacteria); undefined = use default option */
-  selectedCfuOptionId?: number;
-  /** Recipe-line-level default CFU option id (overrides ingredient-wide default) */
-  defaultCfuOptionId?: number | null;
-  cfuOptions: { id: number; label: string; cfu_per_gram: number; is_default: boolean; price_gbp: number | null }[];
 };
 
 export type LineResult = {
   lineId: number;
   sortOrder: number;
-  ingredientId: number;
+  ingredientId: string;
   ingredientName: string;
-  ingredientCode: string | null;
   isBacteria: boolean;
+  stockCfuPerG: number;
   costPerKgGbp: number;
   targetTotalCfu: number;
   grams: number;
   percent: number;
-  /** Design percent: defaultGrams / defaultBatchGrams (the original formula ratio) */
   designPercent: number;
-  cfuPerGram: number; // selected (for bacteria) or 0
   totalCfu: number;
-  finalCfuPerGram: number; // totalCfu / totalBatchGrams
+  finalCfuPerGram: number;
   costInProduct: number;
   fillerMode: FillerMode;
   fillerRatio: number;
   warning?: string;
-  /** true when this bacteria line contributes to a batch overflow */
   overflow?: boolean;
 };
 
@@ -55,24 +47,10 @@ export type CalcOutput = {
   error?: string;
 };
 
-export function getDefaultCfuOption(
-  options: LineInput["cfuOptions"],
-  preferredId?: number | null
-): { id: number; cfu_per_gram: number } | undefined {
-  if (preferredId != null) {
-    const p = options.find((o) => o.id === preferredId);
-    if (p) return { id: p.id, cfu_per_gram: p.cfu_per_gram };
-  }
-  const d = options.find((o) => o.is_default);
-  if (d) return { id: d.id, cfu_per_gram: d.cfu_per_gram };
-  return options[0] ? { id: options[0].id, cfu_per_gram: options[0].cfu_per_gram } : undefined;
-}
-
 export function calculate(
   totalBatchGrams: number,
   defaultBatchGrams: number,
-  lines: LineInput[],
-  selectedCfuByLineId: Map<number, number>
+  lines: LineInput[]
 ): CalcOutput {
   const scale = defaultBatchGrams > 0 ? totalBatchGrams / defaultBatchGrams : 1;
 
@@ -85,16 +63,12 @@ export function calculate(
 
   for (const line of lines) {
     if (line.isBacteria) {
-      const optId = selectedCfuByLineId.get(line.lineId) ?? getDefaultCfuOption(line.cfuOptions)?.id;
-      const opt =
-        line.cfuOptions.find((o) => o.id === optId) ??
-        getDefaultCfuOption(line.cfuOptions, line.defaultCfuOptionId);
-      const cfuPerG = opt ? opt.cfu_per_gram : 0;
+      const cfuPerG = line.stockCfuPerG;
       const scaledTargetTotalCfu = line.targetTotalCfu * scale;
       let grams = 0;
       let warning: string | undefined;
       if (cfuPerG <= 0) {
-        warning = "Stock CFU/g is zero — cannot calculate grams. Select a valid stock option.";
+        warning = "Stock CFU/g is zero — cannot calculate grams.";
         zeroCfuNames.push(line.ingredientName);
       } else {
         grams = scaledTargetTotalCfu / cfuPerG;
@@ -109,14 +83,13 @@ export function calculate(
         sortOrder: line.sortOrder,
         ingredientId: line.ingredientId,
         ingredientName: line.ingredientName,
-        ingredientCode: line.ingredientCode,
         isBacteria: true,
+        stockCfuPerG: cfuPerG,
         costPerKgGbp: line.costPerKgGbp,
         targetTotalCfu: scaledTargetTotalCfu,
         grams,
         percent,
         designPercent,
-        cfuPerGram: cfuPerG,
         totalCfu,
         finalCfuPerGram,
         costInProduct,
@@ -138,14 +111,13 @@ export function calculate(
           sortOrder: line.sortOrder,
           ingredientId: line.ingredientId,
           ingredientName: line.ingredientName,
-          ingredientCode: line.ingredientCode,
           isBacteria: false,
+          stockCfuPerG: 0,
           costPerKgGbp: line.costPerKgGbp,
           targetTotalCfu: 0,
           grams,
           percent,
           designPercent,
-          cfuPerGram: 0,
           totalCfu: 0,
           finalCfuPerGram: 0,
           costInProduct,
@@ -172,8 +144,6 @@ export function calculate(
     }
   }
 
-  // Even when the formula is invalid, push ratio/remainder rows (at 0g if overflow)
-  // so the UI can display them dimmed rather than hiding them entirely.
   const effectiveRemaining = batchOverflow ? 0 : remaining;
   const sumRatioRatios = ratioLines.reduce((s, l) => s + l.fillerRatio, 0);
   const ratioDenom = sumRatioRatios > 0 ? sumRatioRatios : 1;
@@ -190,14 +160,13 @@ export function calculate(
       sortOrder: line.sortOrder,
       ingredientId: line.ingredientId,
       ingredientName: line.ingredientName,
-      ingredientCode: line.ingredientCode,
       isBacteria: false,
+      stockCfuPerG: 0,
       costPerKgGbp: line.costPerKgGbp,
       targetTotalCfu: 0,
       grams,
       percent,
       designPercent,
-      cfuPerGram: 0,
       totalCfu: 0,
       finalCfuPerGram: 0,
       costInProduct,
@@ -217,14 +186,13 @@ export function calculate(
       sortOrder: remainderLine.sortOrder,
       ingredientId: remainderLine.ingredientId,
       ingredientName: remainderLine.ingredientName,
-      ingredientCode: remainderLine.ingredientCode,
       isBacteria: false,
+      stockCfuPerG: 0,
       costPerKgGbp: remainderLine.costPerKgGbp,
       targetTotalCfu: 0,
       grams: remainderGrams,
       percent,
       designPercent,
-      cfuPerGram: 0,
       totalCfu: 0,
       finalCfuPerGram: 0,
       costInProduct,
@@ -246,10 +214,10 @@ export function calculate(
   if (batchOverflow) {
     const needed = sumBacteria + sumFixed;
     const excess = needed - totalBatchGrams;
-    error = `Bacteria + fixed fillers require ${fmtG(needed)} but batch size is only ${fmtG(totalBatchGrams)}. Formula exceeds batch by ${fmtG(excess)}. Increase batch size or choose stronger stock.`;
+    error = `Bacteria + fixed fillers require ${fmtG(needed)} but batch size is only ${fmtG(totalBatchGrams)}. Formula exceeds batch by ${fmtG(excess)}. Increase batch size or choose a different ingredient.`;
   }
   if (hasZeroCfu) {
-    const zeroMsg = `Stock CFU/g is zero for: ${zeroCfuNames.join(", ")}. Cannot calculate until a valid stock is selected.`;
+    const zeroMsg = `Stock CFU/g is zero for: ${zeroCfuNames.join(", ")}. Cannot calculate.`;
     error = error ? `${error}\n${zeroMsg}` : zeroMsg;
   }
 
@@ -265,21 +233,13 @@ export function recipeToLineInputs(recipe: RecipeWithLines): LineInput[] {
     lineId: l.id,
     ingredientId: l.ingredient.id,
     ingredientName: l.ingredient.name,
-    ingredientCode: l.ingredient.code,
-    isBacteria: l.ingredient.is_bacteria,
-    costPerKgGbp: l.cost_per_kg_gbp,
+    isBacteria: l.ingredient.stock_cfu_per_g > 0,
+    stockCfuPerG: l.ingredient.stock_cfu_per_g,
+    costPerKgGbp: l.ingredient.cost_per_kg_gbp,
     targetTotalCfu: l.target_total_cfu,
     defaultGrams: l.default_grams,
     fillerMode: l.filler_mode,
     fillerRatio: Number(l.filler_ratio),
     sortOrder: l.sort_order,
-    defaultCfuOptionId: l.default_cfu_option_id ?? undefined,
-    cfuOptions: l.cfu_options.map((o) => ({
-      id: o.id,
-      label: o.label,
-      cfu_per_gram: o.cfu_per_gram,
-      is_default: o.is_default,
-      price_gbp: o.price_gbp ?? null,
-    })),
   }));
 }
