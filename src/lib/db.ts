@@ -22,6 +22,7 @@ export type Recipe = {
   id: number;
   name: string;
   default_batch_grams: number;
+  default_kg_per_set: number;
 };
 
 export type Ingredient = {
@@ -51,13 +52,14 @@ export type RecipeWithLines = Recipe & {
 export async function getRecipes(): Promise<Recipe[]> {
   const client = await pool.connect();
   try {
-    const r = await client.query<{ id: number; name: string; default_batch_grams: string }>(
-      "SELECT id, name, default_batch_grams FROM recipes ORDER BY name"
+    const r = await client.query<{ id: number; name: string; default_batch_grams: string; default_kg_per_set: string }>(
+      "SELECT id, name, default_batch_grams, default_kg_per_set FROM recipes ORDER BY name"
     );
     return r.rows.map((row) => ({
       id: row.id,
       name: row.name,
       default_batch_grams: Number(row.default_batch_grams),
+      default_kg_per_set: Number(row.default_kg_per_set),
     }));
   } finally {
     client.release();
@@ -68,7 +70,7 @@ export async function getRecipe(recipeId: number): Promise<RecipeWithLines | nul
   const client = await pool.connect();
   try {
     const recipeResult = await client.query<Recipe>(
-      "SELECT id, name, default_batch_grams FROM recipes WHERE id = $1",
+      "SELECT id, name, default_batch_grams, default_kg_per_set FROM recipes WHERE id = $1",
       [recipeId]
     );
     const recipe = recipeResult.rows[0];
@@ -127,6 +129,7 @@ export async function getRecipe(recipeId: number): Promise<RecipeWithLines | nul
       id: recipe.id,
       name: recipe.name,
       default_batch_grams: Number(recipe.default_batch_grams),
+      default_kg_per_set: Number(recipe.default_kg_per_set),
       lines,
     };
   } finally {
@@ -196,15 +199,16 @@ export type CreateRecipeLineInput = {
 export async function createRecipe(
   name: string,
   defaultBatchGrams: number,
-  lines: CreateRecipeLineInput[]
+  lines: CreateRecipeLineInput[],
+  defaultKgPerSet = 1
 ): Promise<{ id: number }> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     const recipeResult = await client.query<{ id: number }>(
-      `INSERT INTO recipes (name, default_batch_grams) VALUES ($1, $2) RETURNING id`,
-      [name, defaultBatchGrams]
+      `INSERT INTO recipes (name, default_batch_grams, default_kg_per_set) VALUES ($1, $2, $3) RETURNING id`,
+      [name, defaultBatchGrams, defaultKgPerSet]
     );
     const recipeId = recipeResult.rows[0].id;
 
@@ -235,6 +239,7 @@ export async function createRecipe(
     await logAction(client, "create_recipe", "recipes", recipeId, {
       name,
       default_batch_grams: defaultBatchGrams,
+      default_kg_per_set: defaultKgPerSet,
       line_count: lines.length,
     });
 
@@ -252,15 +257,16 @@ export async function updateRecipe(
   recipeId: number,
   name: string,
   defaultBatchGrams: number,
-  lines: CreateRecipeLineInput[]
+  lines: CreateRecipeLineInput[],
+  defaultKgPerSet = 1
 ): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     await client.query(
-      `UPDATE recipes SET name = $1, default_batch_grams = $2 WHERE id = $3`,
-      [name, defaultBatchGrams, recipeId]
+      `UPDATE recipes SET name = $1, default_batch_grams = $2, default_kg_per_set = $3 WHERE id = $4`,
+      [name, defaultBatchGrams, defaultKgPerSet, recipeId]
     );
 
     const oldLines = await client.query(
@@ -302,6 +308,7 @@ export async function updateRecipe(
     await logAction(client, "update_recipe", "recipes", recipeId, {
       name,
       default_batch_grams: defaultBatchGrams,
+      default_kg_per_set: defaultKgPerSet,
       line_count: lines.length,
     });
 

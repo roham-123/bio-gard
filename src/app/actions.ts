@@ -29,16 +29,18 @@ export async function createIngredientAction(
 export async function createRecipeAction(
   name: string,
   defaultBatchGrams: number,
-  lines: CreateRecipeLineInput[]
+  lines: CreateRecipeLineInput[],
+  defaultKgPerSet = 1
 ) {
-  return dalCreateRecipe(name, defaultBatchGrams, lines);
+  return dalCreateRecipe(name, defaultBatchGrams, lines, defaultKgPerSet);
 }
 
 export async function updateRecipeAction(
   recipeId: number,
   name: string,
   defaultBatchGrams: number,
-  lines: CreateRecipeLineInput[]
+  lines: CreateRecipeLineInput[],
+  defaultKgPerSet = 1
 ) {
-  return dalUpdateRecipe(recipeId, name, defaultBatchGrams, lines);
+  return dalUpdateRecipe(recipeId, name, defaultBatchGrams, lines, defaultKgPerSet);
 }

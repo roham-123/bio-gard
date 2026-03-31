@@ -31,8 +31,8 @@ INSERT INTO ingredients (id, name, stock_cfu_per_g, cost_per_kg_gbp) VALUES
   ('B-300', 'Bran 300 micron', 0, 0.80),
   ('Fulvic-80', 'Fulvic Acid Powder 80% China', 0, 4.50);
 
-INSERT INTO recipes (name, default_batch_grams)
-VALUES ('FTD Cellex TourTurf Thatch', 600000);
+INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
+VALUES ('FTD Cellex TourTurf Thatch', 600000, 2);
 
 WITH recipe_ref AS (
   SELECT id AS recipe_id

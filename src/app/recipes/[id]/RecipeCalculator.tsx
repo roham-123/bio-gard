@@ -27,20 +27,49 @@ type Props = {
   gbpToCurrencyRate: number;
 };
 
+type PackagingBasis = "per_set" | "per_kg" | "per_unit";
+
+type PackagingLineInput = {
+  id: string;
+  item: string;
+  basis: PackagingBasis;
+  costGbp: number;
+  unitsPerPack?: number;
+};
+
+function getDefaultPackagingLines(recipeName: string): PackagingLineInput[] {
+  if (recipeName.trim() === "FTD Cellex TourTurf Thatch") {
+    return [
+      { id: "pakonap-service", item: "Pakonap Service per set", basis: "per_set", costGbp: 2.61 },
+      { id: "white-box", item: "White Box per set", basis: "per_set", costGbp: 1.14 },
+      { id: "box-label", item: "Box Label", basis: "per_set", costGbp: 0.31 },
+      { id: "leaflet", item: "Leaflet", basis: "per_set", costGbp: 0.07 },
+      { id: "alu-pouch-1kg", item: "Alu Pouch 1kg", basis: "per_kg", costGbp: 0.1 },
+      { id: "outer-box-8-sets", item: "Outer box for 8 sets", basis: "per_unit", costGbp: 0.51, unitsPerPack: 8 },
+    ];
+  }
+  return [];
+}
+
 export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }: Props) {
   const defaultBatchGrams = Number(recipe.default_batch_grams);
   const [batchGrams, setBatchGrams] = useState(defaultBatchGrams);
   const [batchInput, setBatchInput] = useState(String(defaultBatchGrams / 1000));
-  const [kgPerUnit, setKgPerUnit] = useState(1);
-  const [kgPerUnitInput, setKgPerUnitInput] = useState("1");
+  const initialKgPerSet =
+    Number.isFinite(Number(recipe.default_kg_per_set)) && Number(recipe.default_kg_per_set) > 0
+      ? Number(recipe.default_kg_per_set)
+      : 1;
+  const [kgPerUnit, setKgPerUnit] = useState(initialKgPerSet);
+  const [kgPerUnitInput, setKgPerUnitInput] = useState(String(initialKgPerSet));
   const [lineInputs] = useState<LineInput[]>(() => recipeToLineInputs(recipe));
 
-  type PackagingProfile = "none" | "sachet-100g-pail" | "sachet-250g-pail";
-  const [packagingProfile, setPackagingProfile] = useState<PackagingProfile>("none");
-  const [pailCostPerUnit, setPailCostPerUnit] = useState(2.20);
-  const [labelCostPerUnit, setLabelCostPerUnit] = useState(0.40);
+  const [packagingLines, setPackagingLines] = useState<PackagingLineInput[]>(() =>
+    getDefaultPackagingLines(recipe.name)
+  );
   const [isEditingPackaging, setIsEditingPackaging] = useState(false);
-  const [packagingSnapshot, setPackagingSnapshot] = useState<{ pail: number; label: number }>({ pail: 2.20, label: 0.40 });
+  const [packagingSnapshot, setPackagingSnapshot] = useState<PackagingLineInput[]>(() =>
+    getDefaultPackagingLines(recipe.name)
+  );
 
   const syncBatchFromInput = useCallback(() => {
     const parsedKg = parseScientific(batchInput);
@@ -81,37 +110,25 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
   );
 
   const packagingData = useMemo(() => {
-    if (packagingProfile === "none") return null;
     const batchKg = batchGrams / 1000;
-    const sachetSizeKg = packagingProfile === "sachet-100g-pail" ? 0.1 : 0.25;
+    const sets = units;
+    const rows = packagingLines.map((line) => {
+      let quantity = 0;
+      if (line.basis === "per_kg") quantity = batchKg;
+      else if (line.basis === "per_set") quantity = sets;
+      else {
+        const divisor = line.unitsPerPack && line.unitsPerPack > 0 ? line.unitsPerPack : 1;
+        quantity = Math.ceil(sets / divisor);
+      }
+      const total = quantity * line.costGbp;
+      const costPerSet = sets > 0 ? total / sets : 0;
+      return { ...line, quantity, total, costPerSet };
+    });
+    const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
+    return { rows, grandTotal };
+  }, [packagingLines, batchGrams, units]);
 
-    const sachetQty = batchKg > 0 ? Math.ceil(batchKg / sachetSizeKg) : 0;
-    let sachetCostPerUnit: number;
-    if (batchKg >= 100) sachetCostPerUnit = 0.10;
-    else if (batchKg >= 50) sachetCostPerUnit = 0.20;
-    else sachetCostPerUnit = 0.30;
-    const sachetCostPerKg = sachetSizeKg > 0 ? sachetCostPerUnit / sachetSizeKg : 0;
-    const sachetTotal = sachetQty * sachetCostPerUnit;
-
-    const pailQty = batchKg > 0 ? Math.ceil(batchKg / 10) : 0;
-    const pailCostPerKg = pailCostPerUnit / 10;
-    const pailTotal = pailQty * pailCostPerUnit;
-
-    const labelQty = pailQty;
-    const labelCostPerKg = labelCostPerUnit / 10;
-    const labelTotal = labelQty * labelCostPerUnit;
-
-    const grandTotal = sachetTotal + pailTotal + labelTotal;
-
-    return {
-      sachet: { label: "Sachet", qty: sachetQty, costPerUnit: sachetCostPerUnit, costPerKg: sachetCostPerKg, total: sachetTotal },
-      pail: { label: "10kg Pail", qty: pailQty, costPerUnit: pailCostPerUnit, costPerKg: pailCostPerKg, total: pailTotal },
-      labelRow: { label: "Label", qty: labelQty, costPerUnit: labelCostPerUnit, costPerKg: labelCostPerKg, total: labelTotal },
-      grandTotal,
-    };
-  }, [packagingProfile, batchGrams, pailCostPerUnit, labelCostPerUnit]);
-
-  const packagingTotalCost = packagingData?.grandTotal ?? 0;
+  const packagingTotalCost = packagingData.grandTotal;
   const packagingCostPerKg = batchGrams > 0 ? packagingTotalCost / (batchGrams / 1000) : 0;
   const packagingCostPerUnit = units > 0 ? packagingTotalCost / units : 0;
 
@@ -160,7 +177,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
           </div>
           <div className="flex items-center gap-2">
             <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-              kg per unit
+              kg per set
             </label>
             <input
               type="text"
@@ -172,7 +189,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             />
             {kgPerUnit > 0 && batchGrams > 0 && (
               <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                ≈ {formatNumber(units, { maxDecimals: 2 })} units
+                ≈ {formatNumber(units, { maxDecimals: 2 })} sets
               </span>
             )}
           </div>
@@ -220,7 +237,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
               </th>
               <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">g</th>
               <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">kg</th>
-              <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">g/unit</th>
+              <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">g/set</th>
               <th className="px-3 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">%</th>
               <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Stock CFU/g</th>
               <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Target CFU</th>
@@ -351,7 +368,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             </dd>
           </div>
           <div className="flex justify-between gap-4 sm:block">
-            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per unit</dt>
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per set</dt>
             <dd
               className={`font-semibold tabular-nums ${
                 result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"
@@ -392,144 +409,154 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
           <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
             Packaging
           </h2>
-          <div className="flex items-center gap-3">
-            <select
-              value={packagingProfile}
-              onChange={(e) => setPackagingProfile(e.target.value as PackagingProfile)}
-              className="min-w-[200px] rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100 dark:focus:bg-zinc-600"
-            >
-              <option value="none">Select packaging</option>
-              <option value="sachet-100g-pail">Sachets (100g) with Pail</option>
-              <option value="sachet-250g-pail">Sachets (250g) with Pail</option>
-            </select>
-            {packagingProfile !== "none" && (
-              isEditingPackaging ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingPackaging(false)}
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-800"
-                  >
-                    Done
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPailCostPerUnit(packagingSnapshot.pail);
-                      setLabelCostPerUnit(packagingSnapshot.label);
-                      setIsEditingPackaging(false);
-                    }}
-                    className="rounded-lg border-2 border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
+          <div className="flex items-center gap-2">
+            {isEditingPackaging ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingPackaging(false)}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-800"
+                >
+                  Done
+                </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setPackagingSnapshot({ pail: pailCostPerUnit, label: labelCostPerUnit });
-                    setIsEditingPackaging(true);
+                    setPackagingLines(packagingSnapshot);
+                    setIsEditingPackaging(false);
                   }}
-                  className="rounded-lg border-2 border-zinc-400 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+                  className="rounded-lg border-2 border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
                 >
-                  Edit
+                  Cancel
                 </button>
-              )
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setPackagingSnapshot(packagingLines.map((line) => ({ ...line })));
+                  setIsEditingPackaging(true);
+                }}
+                className="rounded-lg border-2 border-zinc-400 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow-sm hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
+              >
+                Edit
+              </button>
             )}
           </div>
         </div>
-
-        {packagingProfile !== "none" && packagingData && (
-          <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-600">
-            <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
-              <thead>
-                <tr className="bg-zinc-100 dark:bg-zinc-700/80">
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Item</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Quantity</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/kg</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/Unit</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Total Cost</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
-                <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">{packagingData.sachet.label}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(packagingData.sachet.qty, { maxDecimals: 0 })}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.sachet.costPerKg)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.sachet.costPerUnit)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatDisplayCurrency(packagingData.sachet.total)}</td>
-                </tr>
-                <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">{packagingData.pail.label}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(packagingData.pail.qty, { maxDecimals: 0 })}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.pail.costPerKg)}</td>
+        <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-600">
+          <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
+            <thead>
+              <tr className="bg-zinc-100 dark:bg-zinc-700/80">
+                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Item</th>
+                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Quantity</th>
+                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost</th>
+                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/Set</th>
+                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Total Cost</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
+              {packagingData.rows.map((row, idx) => (
+                <tr key={row.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+                  <td className="px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    {isEditingPackaging ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="text"
+                          value={row.item}
+                          onChange={(e) =>
+                            setPackagingLines((prev) =>
+                              prev.map((line, i) => (i === idx ? { ...line, item: e.target.value } : line))
+                            )
+                          }
+                          className="w-52 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                        />
+                        <select
+                          value={row.basis}
+                          onChange={(e) =>
+                            setPackagingLines((prev) =>
+                              prev.map((line, i) =>
+                                i === idx ? { ...line, basis: e.target.value as PackagingBasis } : line
+                              )
+                            )
+                          }
+                          className="rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                        >
+                          <option value="per_set">/set</option>
+                          <option value="per_kg">/kg</option>
+                          <option value="per_unit">/unit</option>
+                        </select>
+                        {row.basis === "per_unit" && (
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={row.unitsPerPack ?? 1}
+                            onChange={(e) => {
+                              const v = parseInt(e.target.value, 10);
+                              setPackagingLines((prev) =>
+                                prev.map((line, i) =>
+                                  i === idx ? { ...line, unitsPerPack: !Number.isNaN(v) && v > 0 ? v : 1 } : line
+                                )
+                              );
+                            }}
+                            className="w-20 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                            title="Units per pack"
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      row.item
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                    {formatNumber(row.quantity, { maxDecimals: row.basis === "per_unit" ? 0 : 2 })}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums">
                     {isEditingPackaging ? (
                       <input
                         type="number"
-                        step="0.01"
                         min="0"
-                        value={toDisplayCurrency(pailCostPerUnit)}
+                        step="0.01"
+                        value={toDisplayCurrency(row.costGbp)}
                         onChange={(e) => {
                           const v = parseFloat(e.target.value);
-                          if (!Number.isNaN(v) && v >= 0) setPailCostPerUnit(v / displayRate);
+                          if (!Number.isNaN(v) && v >= 0) {
+                            setPackagingLines((prev) =>
+                              prev.map((line, i) => (i === idx ? { ...line, costGbp: v / displayRate } : line))
+                            );
+                          }
                         }}
                         className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
                       />
                     ) : (
-                      <span className="text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.pail.costPerUnit)}</span>
+                      <span className="text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(row.costGbp)}</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatDisplayCurrency(packagingData.pail.total)}</td>
-                </tr>
-                <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">{packagingData.labelRow.label}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(packagingData.labelRow.qty, { maxDecimals: 0 })}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.labelRow.costPerKg)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums">
-                    {isEditingPackaging ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={toDisplayCurrency(labelCostPerUnit)}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (!Number.isNaN(v) && v >= 0) setLabelCostPerUnit(v / displayRate);
-                        }}
-                        className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
-                      />
-                    ) : (
-                      <span className="text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(packagingData.labelRow.costPerUnit)}</span>
-                    )}
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                    {units > 0 ? formatDisplayCurrency(row.costPerSet) : "—"}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatDisplayCurrency(packagingData.labelRow.total)}</td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr className="bg-zinc-50 dark:bg-zinc-700/50">
-                  <td colSpan={2} className="px-4 py-3 text-left text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                    Total
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
-                    {batchGrams > 0 ? formatDisplayCurrency(packagingData.grandTotal / (batchGrams / 1000)) : "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
-                    {units > 0 ? formatDisplayCurrency(packagingData.grandTotal / units) : "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
-                    {formatDisplayCurrency(packagingData.grandTotal)}
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
+                    {formatDisplayCurrency(row.total)}
                   </td>
                 </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-
-        {packagingProfile === "none" && (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Select a packaging profile to calculate packaging costs.</p>
-        )}
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-zinc-50 dark:bg-zinc-700/50">
+                <td colSpan={3} className="px-4 py-3 text-left text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                  Total
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
+                  {units > 0 ? formatDisplayCurrency(packagingCostPerUnit) : "—"}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
+                  {formatDisplayCurrency(packagingData.grandTotal)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
 
       {/* Final product summary */}
@@ -577,7 +604,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             </dd>
           </div>
           <div className="flex justify-between gap-4 sm:block">
-            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per unit</dt>
+            <dt className="font-medium text-zinc-600 dark:text-zinc-400">Cost per set</dt>
             <dd
               className={`font-semibold tabular-nums ${
                 result.formulaValid ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-500 dark:text-zinc-400"

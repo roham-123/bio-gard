@@ -24,12 +24,12 @@ export function generateRecipePdf(
   y += 6;
   const kgPerUnit = units > 0 ? batchGrams / 1000 / units : 0;
   doc.text(
-    `kg per unit: ${kgPerUnit > 0 ? `${formatKg(kgPerUnit)} kg` : "—"}`,
+    `kg per set: ${kgPerUnit > 0 ? `${formatKg(kgPerUnit)} kg` : "—"}`,
     14,
     y
   );
   y += 6;
-  doc.text(`Units: ${units}`, 14, y);
+  doc.text(`Sets: ${units}`, 14, y);
   y += 10;
 
   const headers = [
@@ -37,7 +37,7 @@ export function generateRecipePdf(
     "Ingredient",
     "g",
     "kg",
-    "g/unit",
+    "g/set",
     "%",
     "Stock CFU/g",
     "Target CFU",
@@ -79,7 +79,7 @@ export function generateRecipePdf(
   doc.text(`Cost per kg: ${formatCurrency(totals.costPerKg)}`, 14, y);
   if (totals.costPerUnit != null) {
     y += 6;
-    doc.text(`Cost per unit: ${formatCurrency(totals.costPerUnit)}`, 14, y);
+    doc.text(`Cost per set: ${formatCurrency(totals.costPerUnit)}`, 14, y);
   }
 
   doc.save(`formula-${recipeName.replace(/[^a-z0-9]/gi, "-")}-${batchGrams}g.pdf`);

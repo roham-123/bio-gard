@@ -4,7 +4,8 @@
 CREATE TABLE IF NOT EXISTS recipes (
   id            SERIAL PRIMARY KEY,
   name          TEXT NOT NULL UNIQUE,
-  default_batch_grams NUMERIC NOT NULL CHECK (default_batch_grams > 0)
+  default_batch_grams NUMERIC NOT NULL CHECK (default_batch_grams > 0),
+  default_kg_per_set NUMERIC NOT NULL DEFAULT 1 CHECK (default_kg_per_set > 0)
 );
 
 CREATE TABLE IF NOT EXISTS ingredients (
