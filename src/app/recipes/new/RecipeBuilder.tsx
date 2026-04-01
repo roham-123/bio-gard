@@ -8,6 +8,7 @@ import {
   createRecipeAction,
   updateRecipeAction,
   createIngredientAction,
+  updateIngredientCostPerKgAction,
 } from "@/app/actions";
 
 type FillerMode = "fixed" | "ratio" | "remainder";
@@ -90,6 +91,9 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
   const [batchSizeKg, setBatchSizeKg] = useState(
     existingRecipe ? String(existingRecipe.default_batch_grams / 1000) : ""
   );
+  const [defaultKgPerSet, setDefaultKgPerSet] = useState(
+    existingRecipe ? String(existingRecipe.default_kg_per_set) : "1"
+  );
   const [lines, setLines] = useState<BuilderLine[]>(
     existingRecipe && existingRecipe.lines.length > 0
       ? existingRecipe.lines.map(lineFromRecipeLine)
@@ -98,6 +102,7 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
   const [ingredients, setIngredients] = useState<Ingredient[]>(initialIngredients);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [costDraftByLineUid, setCostDraftByLineUid] = useState<Record<string, string>>({});
 
   function updateLine(lineUid: string, patch: Partial<BuilderLine>) {
     setLines((prev) => prev.map((l) => (l.uid === lineUid ? { ...l, ...patch } : l)));
@@ -151,6 +156,55 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
     }
   }
 
+  async function persistIngredientCost(ingredientId: string, rawValue: string) {
+    const parsed = parseScientific(rawValue);
+    if (Number.isNaN(parsed) || parsed < 0) {
+      setError("Cost/kg must be a valid non-negative number.");
+      return;
+    }
+    try {
+      const updated = await updateIngredientCostPerKgAction(ingredientId, parsed);
+      if (!updated) return;
+      setIngredients((prev) =>
+        prev.map((ing) => (ing.id === ingredientId ? { ...ing, cost_per_kg_gbp: parsed } : ing))
+      );
+      setLines((prev) =>
+        prev.map((l) => (l.ingredientId === ingredientId ? { ...l, costPerKgGbp: parsed } : l))
+      );
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to update ingredient cost");
+    }
+  }
+
+  function beginCostEdit(lineUid: string, currentValue: number) {
+    setCostDraftByLineUid((prev) => ({ ...prev, [lineUid]: String(currentValue) }));
+  }
+
+  function setCostDraft(lineUid: string, rawValue: string) {
+    setCostDraftByLineUid((prev) => ({ ...prev, [lineUid]: rawValue }));
+  }
+
+  async function commitCostEdit(line: BuilderLine) {
+    const raw = costDraftByLineUid[line.uid] ?? String(line.costPerKgGbp);
+    const parsed = parseScientific(raw);
+    if (Number.isNaN(parsed) || parsed < 0) {
+      setError("Cost/kg must be a valid non-negative number.");
+      setCostDraftByLineUid((prev) => {
+        const next = { ...prev };
+        delete next[line.uid];
+        return next;
+      });
+      return;
+    }
+    updateLine(line.uid, { costPerKgGbp: parsed });
+    await persistIngredientCost(line.ingredientId!, raw);
+    setCostDraftByLineUid((prev) => {
+      const next = { ...prev };
+      delete next[line.uid];
+      return next;
+    });
+  }
+
   const addRow = useCallback(() => setLines((prev) => [...prev, emptyLine()]), []);
   const removeRow = useCallback(
     (uid: string) => setLines((prev) => prev.filter((l) => l.uid !== uid)),
@@ -164,6 +218,8 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
     const batchKg = parseScientific(batchSizeKg);
     if (Number.isNaN(batchKg) || batchKg <= 0) { setError("Default batch size must be a positive number."); return; }
     const batchGrams = batchKg * 1000;
+    const kgPerSet = parseScientific(defaultKgPerSet);
+    if (Number.isNaN(kgPerSet) || kgPerSet <= 0) { setError("Default kg per set must be a positive number."); return; }
     const validLines = lines.filter((l) => l.ingredientId != null);
     if (validLines.length === 0) { setError("Add at least one ingredient row."); return; }
 
@@ -188,10 +244,10 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
     setSaving(true);
     try {
       if (isEditMode) {
-        await updateRecipeAction(existingRecipe!.id, name, batchGrams, lineInputs);
+        await updateRecipeAction(existingRecipe!.id, name, batchGrams, lineInputs, kgPerSet);
         router.push(`/recipes/${existingRecipe!.id}`);
       } else {
-        const result = await createRecipeAction(name, batchGrams, lineInputs);
+        const result = await createRecipeAction(name, batchGrams, lineInputs, kgPerSet);
         router.push(`/recipes/${result.id}`);
       }
     } catch (err: unknown) {
@@ -249,6 +305,18 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
               })()}
             </div>
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+              Default kg per set
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. 2"
+              value={defaultKgPerSet}
+              onChange={(e) => setDefaultKgPerSet(e.target.value)}
+              className={`${inputCls} w-32`}
+            />
+          </div>
         </div>
       </div>
 
@@ -295,7 +363,7 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
                       <option value="">Select ingredient...</option>
                       <option value="__new__">+ Create new ingredient</option>
                       {ingredients.map((i) => (
-                        <option key={i.id} value={i.id}>
+                        <option key={i.id} value={i.id} className="font-semibold">
                           {i.stock_cfu_per_g > 0 ? "\u{1F9EC} " : ""}[{i.id}] {i.name}
                         </option>
                       ))}
@@ -344,7 +412,25 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
                 </td>
 
                 <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
-                  {line.ingredientId ? `£${line.costPerKgGbp.toFixed(2)}` : "—"}
+                  {line.ingredientId ? (
+                    isEditMode ? (
+                      <input
+                        type="text"
+                        value={costDraftByLineUid[line.uid] ?? String(line.costPerKgGbp)}
+                        onFocus={() => beginCostEdit(line.uid, line.costPerKgGbp)}
+                        onChange={(e) => setCostDraft(line.uid, e.target.value)}
+                        onBlur={() => void commitCostEdit(line)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        className={`${inputCls} w-24 text-right`}
+                      />
+                    ) : (
+                      `£${line.costPerKgGbp.toFixed(2)}`
+                    )
+                  ) : "—"}
                 </td>
 
                 <td className="px-3 py-3 text-sm">

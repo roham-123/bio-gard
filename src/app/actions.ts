@@ -4,6 +4,7 @@ import {
   getRecipe as dalGetRecipe,
   getIngredients as dalGetIngredients,
   createIngredient as dalCreateIngredient,
+  updateIngredientCostPerKg as dalUpdateIngredientCostPerKg,
   createRecipe as dalCreateRecipe,
   updateRecipe as dalUpdateRecipe,
   type CreateRecipeLineInput,
@@ -24,6 +25,13 @@ export async function createIngredientAction(
   costPerKgGbp: number
 ) {
   return dalCreateIngredient(id, name, stockCfuPerG, costPerKgGbp);
+}
+
+export async function updateIngredientCostPerKgAction(
+  ingredientId: string,
+  costPerKgGbp: number
+) {
+  return dalUpdateIngredientCostPerKg(ingredientId, costPerKgGbp);
 }
 
 export async function createRecipeAction(

@@ -72,3 +72,42 @@ JOIN (
 ) AS v(ingredient_id, sort_order, target_total_cfu, default_grams, filler_mode, filler_ratio)
   ON TRUE
 JOIN ingredients i ON i.id = v.ingredient_id;
+
+INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
+VALUES ('Pond Clear Pure Aqua 50 grams You Garden', 100000, 50);
+
+WITH recipe_ref AS (
+  SELECT id AS recipe_id
+  FROM recipes
+  WHERE name = 'Pond Clear Pure Aqua 50 grams You Garden'
+)
+INSERT INTO recipe_lines (
+  recipe_id,
+  ingredient_id,
+  sort_order,
+  target_total_cfu,
+  default_grams,
+  filler_mode,
+  filler_ratio
+)
+SELECT
+  recipe_ref.recipe_id,
+  v.ingredient_id,
+  v.sort_order,
+  v.target_total_cfu,
+  CASE
+    WHEN i.stock_cfu_per_g > 0 THEN v.target_total_cfu / i.stock_cfu_per_g
+    ELSE v.default_grams
+  END AS default_grams,
+  v.filler_mode,
+  v.filler_ratio
+FROM recipe_ref
+JOIN (
+  VALUES
+    ('PRO-0235'::text, 1, 3e14::numeric,    0::numeric, 'fixed'::text, 0::numeric),
+    ('MM3'::text,      2, 9e12::numeric,    0::numeric, 'fixed'::text, 0::numeric),
+    ('Z100'::text,     3, 0::numeric,       0::numeric, 'ratio'::text, 0.21::numeric),
+    ('SB-100'::text,   4, 0::numeric,       0::numeric, 'ratio'::text, 0.79::numeric)
+) AS v(ingredient_id, sort_order, target_total_cfu, default_grams, filler_mode, filler_ratio)
+  ON TRUE
+JOIN ingredients i ON i.id = v.ingredient_id;

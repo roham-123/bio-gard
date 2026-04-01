@@ -187,6 +187,39 @@ export async function createIngredient(
   }
 }
 
+export async function updateIngredientCostPerKg(
+  ingredientId: string,
+  costPerKgGbp: number
+): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    const before = await client.query<{ name: string; cost_per_kg_gbp: string }>(
+      `SELECT name, cost_per_kg_gbp
+       FROM ingredients
+       WHERE id = $1`,
+      [ingredientId]
+    );
+    const r = await client.query(
+      `UPDATE ingredients
+       SET cost_per_kg_gbp = $1
+       WHERE id = $2`,
+      [costPerKgGbp, ingredientId]
+    );
+    const updated = (r.rowCount ?? 0) > 0;
+    if (updated) {
+      const prev = before.rows[0];
+      await logAction(client, "update_ingredient_cost", "ingredients", ingredientId, {
+        ingredient_name: prev?.name,
+        old_cost_per_kg_gbp: prev?.cost_per_kg_gbp != null ? Number(prev.cost_per_kg_gbp) : null,
+        new_cost_per_kg_gbp: costPerKgGbp,
+      });
+    }
+    return updated;
+  } finally {
+    client.release();
+  }
+}
+
 export type CreateRecipeLineInput = {
   ingredientId: string;
   sortOrder: number;

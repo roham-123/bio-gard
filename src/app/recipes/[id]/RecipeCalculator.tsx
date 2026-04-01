@@ -35,6 +35,8 @@ type PackagingLineInput = {
   basis: PackagingBasis;
   costGbp: number;
   unitsPerPack?: number;
+  quantitySource?: "sets" | "kg";
+  quantityMultiplier?: number;
 };
 
 function getDefaultPackagingLines(recipeName: string): PackagingLineInput[] {
@@ -45,7 +47,50 @@ function getDefaultPackagingLines(recipeName: string): PackagingLineInput[] {
       { id: "box-label", item: "Box Label", basis: "per_set", costGbp: 0.31 },
       { id: "leaflet", item: "Leaflet", basis: "per_set", costGbp: 0.07 },
       { id: "alu-pouch-1kg", item: "Alu Pouch 1kg", basis: "per_kg", costGbp: 0.1 },
-      { id: "outer-box-8-sets", item: "Outer box for 8 sets", basis: "per_unit", costGbp: 0.51, unitsPerPack: 8 },
+      {
+        id: "outer-box-8-sets",
+        item: "Outer box for 8 sets",
+        basis: "per_unit",
+        costGbp: 0.51,
+        unitsPerPack: 8,
+        quantitySource: "sets",
+      },
+    ];
+  }
+  if (recipeName.trim() === "Pond Clear Pure Aqua 50 grams You Garden") {
+    return [
+      { id: "bart-mixing-fee", item: "Bart mixing fee", basis: "per_kg", costGbp: 0.2 },
+      { id: "sachet", item: "100 grams Sachet or 250 grams", basis: "per_kg", costGbp: 12 },
+      {
+        id: "pail-10kg",
+        item: "10 kg Pail",
+        basis: "per_unit",
+        costGbp: 2.2,
+        unitsPerPack: 10,
+        quantitySource: "kg",
+      },
+    ];
+  }
+  if (recipeName.trim() === "STP Marine MM3 100x100 (4x25 unit) pouch") {
+    return [
+      { id: "pakonap-mixing-service", item: "Pakonap mixing service", basis: "per_kg", costGbp: 2 },
+      {
+        id: "zipbag-25pcs",
+        item: "ZipBag/25 pcs, 4 per set",
+        basis: "per_set",
+        costGbp: 0.3,
+        quantityMultiplier: 4,
+      },
+      {
+        id: "zipbag-label",
+        item: "ZipBag Label, 4 per set",
+        basis: "per_set",
+        costGbp: 0.22,
+        quantityMultiplier: 4,
+      },
+      { id: "large-box", item: "Large Box", basis: "per_set", costGbp: 2.4 },
+      { id: "box-label", item: "Box Label", basis: "per_set", costGbp: 0.25 },
+      { id: "leaflet", item: "leaflet", basis: "per_set", costGbp: 0.3 },
     ];
   }
   return [];
@@ -117,9 +162,12 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
       if (line.basis === "per_kg") quantity = batchKg;
       else if (line.basis === "per_set") quantity = sets;
       else {
+        const source = line.quantitySource === "kg" ? batchKg : sets;
         const divisor = line.unitsPerPack && line.unitsPerPack > 0 ? line.unitsPerPack : 1;
-        quantity = Math.ceil(sets / divisor);
+        quantity = Math.ceil(source / divisor);
       }
+      const multiplier = line.quantityMultiplier && line.quantityMultiplier > 0 ? line.quantityMultiplier : 1;
+      quantity *= multiplier;
       const total = quantity * line.costGbp;
       const costPerSet = sets > 0 ? total / sets : 0;
       return { ...line, quantity, total, costPerSet };
@@ -268,7 +316,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
                           : "hover:bg-zinc-50 dark:hover:bg-zinc-700/40",
                   ].join(" ")}
                 >
-                  <td className="whitespace-nowrap px-3 py-3 text-sm font-mono text-zinc-500 dark:text-zinc-400">
+                  <td className="whitespace-nowrap px-3 py-3 text-sm font-mono font-bold text-zinc-700 dark:text-zinc-200">
                     {line.ingredientId}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-zinc-900 dark:text-zinc-100">
@@ -327,7 +375,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
         ].join(" ")}
       >
         <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-          Formula Summary
+          Microbial Formula Summary
           {!result.formulaValid && (
             <span className="ml-2 rounded bg-red-100 px-2 py-0.5 text-xs font-bold uppercase text-red-700 dark:bg-red-900/50 dark:text-red-300">
               Invalid
@@ -383,13 +431,31 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             type="button"
             disabled={!result.formulaValid}
             onClick={() =>
-              generateRecipePdf(recipe.name, batchGrams, units, result.results, {
+              generateRecipePdf(
+                recipe.name,
+                batchGrams,
+                units,
+                result.results,
+                packagingData.rows.map((row) => ({
+                  item: row.item,
+                  quantity: row.quantity,
+                  costGbp: row.costGbp,
+                  costPerSetGbp: row.costPerSet,
+                  totalGbp: row.total,
+                })),
+                {
                 totalGrams: result.totalGrams,
                 totalCfu: totalFinalCfuPerGram,
-                totalCost: result.totalCost,
-                costPerKg: result.costPerKg,
-                costPerUnit: units > 0 ? result.totalCost / units : undefined,
-              })
+                formulaTotalCost: result.totalCost,
+                formulaCostPerKg: result.costPerKg,
+                formulaCostPerSet: units > 0 ? result.totalCost / units : undefined,
+                packagingTotalCost,
+                packagingCostPerSet: units > 0 ? packagingTotalCost / units : undefined,
+                finalTotalCost,
+                finalCostPerKg,
+                finalCostPerSet: units > 0 ? finalCostPerUnit : undefined,
+              }
+            )
             }
             className={[
               "rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2",
@@ -450,7 +516,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
               <tr className="bg-zinc-100 dark:bg-zinc-700/80">
                 <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Item</th>
                 <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Quantity</th>
-                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost</th>
+                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/kg</th>
                 <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/Set</th>
                 <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Total Cost</th>
               </tr>
@@ -512,26 +578,8 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {formatNumber(row.quantity, { maxDecimals: row.basis === "per_unit" ? 0 : 2 })}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums">
-                    {isEditingPackaging ? (
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={toDisplayCurrency(row.costGbp)}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (!Number.isNaN(v) && v >= 0) {
-                            setPackagingLines((prev) =>
-                              prev.map((line, i) => (i === idx ? { ...line, costGbp: v / displayRate } : line))
-                            );
-                          }
-                        }}
-                        className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
-                      />
-                    ) : (
-                      <span className="text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(row.costGbp)}</span>
-                    )}
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                    {batchGrams > 0 ? formatDisplayCurrency(row.total / (batchGrams / 1000)) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {units > 0 ? formatDisplayCurrency(row.costPerSet) : "—"}
@@ -544,8 +592,11 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             </tbody>
             <tfoot>
               <tr className="bg-zinc-50 dark:bg-zinc-700/50">
-                <td colSpan={3} className="px-4 py-3 text-left text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                <td colSpan={2} className="px-4 py-3 text-left text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
                   Total
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
+                  {batchGrams > 0 ? formatDisplayCurrency(packagingCostPerKg) : "—"}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
                   {units > 0 ? formatDisplayCurrency(packagingCostPerUnit) : "—"}
