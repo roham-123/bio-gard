@@ -579,10 +579,53 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
                     {formatNumber(row.quantity, { maxDecimals: row.basis === "per_unit" ? 0 : 2 })}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {batchGrams > 0 ? formatDisplayCurrency(row.total / (batchGrams / 1000)) : "—"}
+                    {isEditingPackaging ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={batchGrams > 0 ? toDisplayCurrency(row.total / (batchGrams / 1000)) : 0}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          const batchKg = batchGrams / 1000;
+                          if (Number.isNaN(v) || v < 0 || batchKg <= 0 || row.quantity <= 0) return;
+                          const targetTotalGbp = (v / displayRate) * batchKg;
+                          const nextCostGbp = targetTotalGbp / row.quantity;
+                          setPackagingLines((prev) =>
+                            prev.map((line, i) => (i === idx ? { ...line, costGbp: nextCostGbp } : line))
+                          );
+                        }}
+                        className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                      />
+                    ) : batchGrams > 0 ? (
+                      formatDisplayCurrency(row.total / (batchGrams / 1000))
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {units > 0 ? formatDisplayCurrency(row.costPerSet) : "—"}
+                    {isEditingPackaging ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={units > 0 ? toDisplayCurrency(row.costPerSet) : 0}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isNaN(v) || v < 0 || units <= 0 || row.quantity <= 0) return;
+                          const targetTotalGbp = (v / displayRate) * units;
+                          const nextCostGbp = targetTotalGbp / row.quantity;
+                          setPackagingLines((prev) =>
+                            prev.map((line, i) => (i === idx ? { ...line, costGbp: nextCostGbp } : line))
+                          );
+                        }}
+                        className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                      />
+                    ) : units > 0 ? (
+                      formatDisplayCurrency(row.costPerSet)
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
                     {formatDisplayCurrency(row.total)}
