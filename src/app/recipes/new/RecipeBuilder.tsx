@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Ingredient, RecipeWithLines } from "@/lib/db";
 import { parseScientific, formatCfu } from "@/lib/format";
+import { calculate, type LineInput } from "@/lib/calc";
 import {
   createRecipeAction,
   updateRecipeAction,
@@ -103,6 +104,58 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [costDraftByLineUid, setCostDraftByLineUid] = useState<Record<string, string>>({});
+  const previewBatchKg = parseScientific(batchSizeKg);
+  const previewBatchGrams = !Number.isNaN(previewBatchKg) && previewBatchKg > 0 ? previewBatchKg * 1000 : 0;
+
+  const previewLineInputs = useMemo<LineInput[]>(
+    () =>
+      lines
+        .filter((line) => line.ingredientId != null)
+        .map((line, idx) => {
+          const targetCfu = parseScientific(line.targetTotalCfu) || 0;
+          const defaultGrams = line.isBacteria
+            ? line.stockCfuPerG > 0
+              ? targetCfu / line.stockCfuPerG
+              : 0
+            : parseScientific(line.defaultGrams) || 0;
+          return {
+            lineId: idx + 1,
+            ingredientId: line.ingredientId!,
+            ingredientName: line.ingredientName,
+            isBacteria: line.isBacteria,
+            stockCfuPerG: line.stockCfuPerG,
+            costPerKgGbp: line.costPerKgGbp,
+            targetTotalCfu: targetCfu,
+            defaultGrams,
+            fillerMode: line.fillerMode,
+            fillerRatio: line.fillerMode === "ratio" ? parseScientific(line.fillerRatio) || 0 : 0,
+            sortOrder: idx + 1,
+          };
+        }),
+    [lines]
+  );
+
+  const previewResult = useMemo(
+    () =>
+      previewBatchGrams > 0 && previewLineInputs.length > 0
+        ? calculate(previewBatchGrams, previewBatchGrams, previewLineInputs)
+        : null,
+    [previewBatchGrams, previewLineInputs]
+  );
+
+  const previewResultByLineId = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof calculate>["results"][number]>();
+    previewResult?.results.forEach((res) => map.set(res.lineId, res));
+    return map;
+  }, [previewResult]);
+
+  const previewTotalFinalCfuPerGram = useMemo(
+    () =>
+      previewResult
+        ? previewResult.results.reduce((sum, res) => sum + (res.isBacteria ? res.finalCfuPerGram : 0), 0)
+        : 0,
+    [previewResult]
+  );
 
   function updateLine(lineUid: string, patch: Partial<BuilderLine>) {
     setLines((prev) => prev.map((l) => (l.uid === lineUid ? { ...l, ...patch } : l)));
@@ -494,6 +547,117 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
         <button type="button" onClick={handleSave} disabled={saving} className={btnPrimary}>
           {saving ? "Saving..." : isEditMode ? "Update Formula" : "Save Formula"}
         </button>
+      </div>
+
+      <div className="rounded-xl border-2 border-zinc-200 bg-white shadow-md dark:border-zinc-600 dark:bg-zinc-800">
+        <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-600">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+            Live preview
+          </h3>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            Updates automatically while you edit this formula.
+          </p>
+        </div>
+        {previewBatchGrams <= 0 ? (
+          <p className="px-4 py-4 text-sm text-zinc-500 dark:text-zinc-400">
+            Enter a valid default batch size to see preview values.
+          </p>
+        ) : previewLineInputs.length === 0 ? (
+          <p className="px-4 py-4 text-sm text-zinc-500 dark:text-zinc-400">
+            Select at least one ingredient row to see preview values.
+          </p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
+                <thead>
+                  <tr className="bg-zinc-100 dark:bg-zinc-700/80">
+                    <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">#</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">ID</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Ingredient</th>
+                    <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">g</th>
+                    <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">%</th>
+                    <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Stock CFU/g</th>
+                    <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Target CFU/g</th>
+                    <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Final CFU/g</th>
+                    <th className="px-3 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
+                  {previewLineInputs.map((line, idx) => {
+                    const res = previewResultByLineId.get(idx + 1);
+                    return (
+                      <tr key={line.lineId} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+                        <td className="whitespace-nowrap px-3 py-3 text-sm text-zinc-600 dark:text-zinc-400">
+                          {idx + 1}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-sm font-mono text-zinc-700 dark:text-zinc-300">
+                          {line.ingredientId}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-sm text-zinc-900 dark:text-zinc-100">
+                          {line.ingredientName || line.ingredientId}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                          {res ? res.grams.toLocaleString("en-GB", { maximumFractionDigits: 3 }) : "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                          {res ? `${(res.percent * 100).toFixed(2)}%` : "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                          {line.isBacteria ? formatCfu(line.stockCfuPerG) : "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                          {line.isBacteria && res && previewBatchGrams > 0
+                            ? formatCfu(res.targetTotalCfu / previewBatchGrams)
+                            : "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                          {res && res.isBacteria ? formatCfu(res.finalCfuPerGram) : "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                          {res ? `£${res.costInProduct.toFixed(2)}` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="grid gap-3 border-t border-zinc-200 px-4 py-3 text-sm sm:grid-cols-3 dark:border-zinc-600">
+              <div className="rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-700/40">
+                <p className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  Total grams
+                </p>
+                <p className="mt-1 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                  {previewResult
+                    ? previewResult.totalGrams.toLocaleString("en-GB", { maximumFractionDigits: 2 })
+                    : "—"}
+                </p>
+              </div>
+              <div className="rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-700/40">
+                <p className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  Total final CFU/g
+                </p>
+                <p className="mt-1 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                  {previewResult ? formatCfu(previewTotalFinalCfuPerGram) : "—"}
+                </p>
+              </div>
+              <div className="rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-700/40">
+                <p className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  Total cost
+                </p>
+                <p className="mt-1 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                  {previewResult ? `£${previewResult.totalCost.toFixed(2)}` : "—"}
+                </p>
+              </div>
+            </div>
+            {previewResult?.error && (
+              <div className="border-t border-zinc-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-zinc-600 dark:bg-red-950/40 dark:text-red-300">
+                {previewResult.error}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
