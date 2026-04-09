@@ -29,7 +29,8 @@ INSERT INTO ingredients (id, name, stock_cfu_per_g, cost_per_kg_gbp) VALUES
   ('SB-100', 'Sodium Bicarbonate', 0, 1.20),
   ('MB-100', 'MultiDextrose', 0, 1.30),
   ('B-300', 'Bran 300 micron', 0, 0.80),
-  ('Fulvic-80', 'Fulvic Acid Powder 80% China', 0, 4.50);
+  ('Fulvic-80', 'Fulvic Acid Powder 80% China', 0, 4.50),
+  ('OXY', 'OxyPowder Sodium Percarbonate (coated) (25Kg) bag', 0, 1.75);
 
 INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
 VALUES ('FTD Cellex TourTurf Thatch', 600000, 2);
@@ -108,6 +109,46 @@ JOIN (
     ('MM3'::text,      2, 9e12::numeric,    0::numeric, 'fixed'::text, 0::numeric),
     ('Z100'::text,     3, 0::numeric,       0::numeric, 'ratio'::text, 0.21::numeric),
     ('SB-100'::text,   4, 0::numeric,       0::numeric, 'ratio'::text, 0.79::numeric)
+) AS v(ingredient_id, sort_order, target_total_cfu, default_grams, filler_mode, filler_ratio)
+  ON TRUE
+JOIN ingredients i ON i.id = v.ingredient_id;
+
+INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
+VALUES ('PondClear (GreenEdge)', 50000, 0.15);
+
+WITH recipe_ref AS (
+  SELECT id AS recipe_id
+  FROM recipes
+  WHERE name = 'PondClear (GreenEdge)'
+)
+INSERT INTO recipe_lines (
+  recipe_id,
+  ingredient_id,
+  sort_order,
+  target_total_cfu,
+  default_grams,
+  filler_mode,
+  filler_ratio
+)
+SELECT
+  recipe_ref.recipe_id,
+  v.ingredient_id,
+  v.sort_order,
+  v.target_total_cfu,
+  CASE
+    WHEN i.stock_cfu_per_g > 0 THEN v.target_total_cfu / i.stock_cfu_per_g
+    ELSE v.default_grams
+  END AS default_grams,
+  v.filler_mode,
+  v.filler_ratio
+FROM recipe_ref
+JOIN (
+  VALUES
+    ('MM3'::text,    1, 8e13::numeric,    0::numeric, 'fixed'::text, 0::numeric),
+    ('PBM-009'::text, 2, 5e13::numeric,   0::numeric, 'fixed'::text, 0::numeric),
+    ('OXY'::text,    3, 0::numeric,         0::numeric, 'ratio'::text, 0.334::numeric),
+    ('Z100'::text,   4, 0::numeric,         0::numeric, 'ratio'::text, 0.234::numeric),
+    ('SB-100'::text, 5, 0::numeric,         0::numeric, 'ratio'::text, 0.432::numeric)
 ) AS v(ingredient_id, sort_order, target_total_cfu, default_grams, filler_mode, filler_ratio)
   ON TRUE
 JOIN ingredients i ON i.id = v.ingredient_id;

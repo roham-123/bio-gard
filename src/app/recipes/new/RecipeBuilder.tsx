@@ -309,13 +309,23 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
             <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
               Default kg per set
             </label>
-            <input
-              type="text"
-              placeholder="e.g. 2"
-              value={defaultKgPerSet}
-              onChange={(e) => setDefaultKgPerSet(e.target.value)}
-              className={`${inputCls} w-32`}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                placeholder="e.g. 2 or 0.15"
+                value={defaultKgPerSet}
+                onChange={(e) => setDefaultKgPerSet(e.target.value)}
+                className={`${inputCls} w-32`}
+              />
+              {(() => {
+                const kg = parseScientific(defaultKgPerSet);
+                return !Number.isNaN(kg) && kg > 0 ? (
+                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                    = {(kg * 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} g
+                  </span>
+                ) : null;
+              })()}
+            </div>
           </div>
         </div>
       </div>
