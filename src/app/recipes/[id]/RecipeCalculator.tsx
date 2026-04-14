@@ -31,6 +31,7 @@ type PackagingBasis = "per_set" | "per_kg" | "per_unit";
 
 type PackagingLineInput = {
   id: string;
+  code: string;
   item: string;
   basis: PackagingBasis;
   costGbp: number;
@@ -39,61 +40,17 @@ type PackagingLineInput = {
   quantityMultiplier?: number;
 };
 
-function getDefaultPackagingLines(recipeName: string): PackagingLineInput[] {
-  if (recipeName.trim() === "FTD Cellex TourTurf Thatch") {
-    return [
-      { id: "pakonap-service", item: "Pakonap Service per set", basis: "per_set", costGbp: 2.61 },
-      { id: "white-box", item: "White Box per set", basis: "per_set", costGbp: 1.14 },
-      { id: "box-label", item: "Box Label", basis: "per_set", costGbp: 0.31 },
-      { id: "leaflet", item: "Leaflet", basis: "per_set", costGbp: 0.07 },
-      { id: "alu-pouch-1kg", item: "Alu Pouch 1kg", basis: "per_kg", costGbp: 0.1 },
-      {
-        id: "outer-box-8-sets",
-        item: "Outer box for 8 sets",
-        basis: "per_unit",
-        costGbp: 0.51,
-        unitsPerPack: 8,
-        quantitySource: "sets",
-      },
-    ];
-  }
-  if (recipeName.trim() === "Pond Clear Pure Aqua 50 grams You Garden") {
-    return [
-      { id: "bart-mixing-fee", item: "Bart mixing fee", basis: "per_kg", costGbp: 0.2 },
-      { id: "sachet", item: "100 grams Sachet or 250 grams", basis: "per_kg", costGbp: 12 },
-      {
-        id: "pail-10kg",
-        item: "10 kg Pail",
-        basis: "per_unit",
-        costGbp: 2.2,
-        unitsPerPack: 10,
-        quantitySource: "kg",
-      },
-    ];
-  }
-  if (recipeName.trim() === "STP Marine MM3 100x100 (4x25 unit) pouch") {
-    return [
-      { id: "pakonap-mixing-service", item: "Pakonap mixing service", basis: "per_kg", costGbp: 2 },
-      {
-        id: "zipbag-25pcs",
-        item: "ZipBag/25 pcs, 4 per set",
-        basis: "per_set",
-        costGbp: 0.3,
-        quantityMultiplier: 4,
-      },
-      {
-        id: "zipbag-label",
-        item: "ZipBag Label, 4 per set",
-        basis: "per_set",
-        costGbp: 0.22,
-        quantityMultiplier: 4,
-      },
-      { id: "large-box", item: "Large Box", basis: "per_set", costGbp: 2.4 },
-      { id: "box-label", item: "Box Label", basis: "per_set", costGbp: 0.25 },
-      { id: "leaflet", item: "leaflet", basis: "per_set", costGbp: 0.3 },
-    ];
-  }
-  return [];
+function recipeToPackagingInputs(recipe: RecipeWithLines): PackagingLineInput[] {
+  return (recipe.packaging_lines ?? []).map((line) => ({
+    id: String(line.id),
+    code: line.packaging_item_code,
+    item: line.packaging_item_name,
+    basis: line.usage_basis,
+    costGbp: Number(line.cost_gbp),
+    unitsPerPack: line.units_per_pack ?? undefined,
+    quantitySource: line.quantity_source,
+    quantityMultiplier: Number(line.quantity_multiplier),
+  }));
 }
 
 export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }: Props) {
@@ -109,11 +66,11 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
   const [lineInputs] = useState<LineInput[]>(() => recipeToLineInputs(recipe));
 
   const [packagingLines, setPackagingLines] = useState<PackagingLineInput[]>(() =>
-    getDefaultPackagingLines(recipe.name)
+    recipeToPackagingInputs(recipe)
   );
   const [isEditingPackaging, setIsEditingPackaging] = useState(false);
   const [packagingSnapshot, setPackagingSnapshot] = useState<PackagingLineInput[]>(() =>
-    getDefaultPackagingLines(recipe.name)
+    recipeToPackagingInputs(recipe)
   );
 
   const syncBatchFromInput = useCallback(() => {
@@ -158,8 +115,13 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
     const batchKg = batchGrams / 1000;
     const sets = units;
     const rows = packagingLines.map((line) => {
+      const effectiveCostGbp =
+        line.code === "SACH100G" ? (batchKg >= 100 ? 0.1 : 0.2) : line.costGbp;
       let quantity = 0;
-      if (line.basis === "per_kg") quantity = batchKg;
+      if (line.code === "SACH100G") {
+        // SACH100G quantity is number of 100g sachets in the batch.
+        quantity = batchKg / 0.1;
+      } else if (line.basis === "per_kg") quantity = batchKg;
       else if (line.basis === "per_set") quantity = sets;
       else {
         const source = line.quantitySource === "kg" ? batchKg : sets;
@@ -168,9 +130,9 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
       }
       const multiplier = line.quantityMultiplier && line.quantityMultiplier > 0 ? line.quantityMultiplier : 1;
       quantity *= multiplier;
-      const total = quantity * line.costGbp;
+      const total = quantity * effectiveCostGbp;
       const costPerSet = sets > 0 ? total / sets : 0;
-      return { ...line, quantity, total, costPerSet };
+      return { ...line, effectiveCostGbp, quantity, total, costPerSet };
     });
     const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
     return { rows, grandTotal };
@@ -439,7 +401,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
                 packagingData.rows.map((row) => ({
                   item: row.item,
                   quantity: row.quantity,
-                  costGbp: row.costGbp,
+                  costGbp: row.effectiveCostGbp,
                   costPerSetGbp: row.costPerSet,
                   totalGbp: row.total,
                 })),
@@ -514,8 +476,10 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
           <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
             <thead>
               <tr className="bg-zinc-100 dark:bg-zinc-700/80">
+                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">ID</th>
                 <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Item</th>
                 <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Quantity</th>
+                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/Unit</th>
                 <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/kg</th>
                 <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Cost/Set</th>
                 <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Total Cost</th>
@@ -524,7 +488,10 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
               {packagingData.rows.map((row, idx) => (
                 <tr key={row.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
-                  <td className="px-4 py-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                  <td className="whitespace-nowrap px-4 py-3 text-left text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                    {row.code}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-normal text-zinc-900 dark:text-zinc-100">
                     {isEditingPackaging ? (
                       <div className="flex flex-wrap items-center gap-2">
                         <input
@@ -579,7 +546,27 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
                     {formatNumber(row.quantity, { maxDecimals: row.basis === "per_unit" ? 0 : 2 })}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {isEditingPackaging ? (
+                    {isEditingPackaging && row.code !== "SACH100G" ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={toDisplayCurrency(row.costGbp)}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isNaN(v) || v < 0) return;
+                          setPackagingLines((prev) =>
+                            prev.map((line, i) => (i === idx ? { ...line, costGbp: v / displayRate } : line))
+                          );
+                        }}
+                        className="w-24 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                      />
+                    ) : (
+                      formatDisplayCurrency(row.effectiveCostGbp)
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                    {isEditingPackaging && row.code !== "SACH100G" ? (
                       <input
                         type="number"
                         min="0"
@@ -604,7 +591,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
                     )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {isEditingPackaging ? (
+                    {isEditingPackaging && row.code !== "SACH100G" ? (
                       <input
                         type="number"
                         min="0"
@@ -635,7 +622,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             </tbody>
             <tfoot>
               <tr className="bg-zinc-50 dark:bg-zinc-700/50">
-                <td colSpan={2} className="px-4 py-3 text-left text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                <td colSpan={4} className="px-4 py-3 text-left text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
                   Total
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">

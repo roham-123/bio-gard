@@ -2,7 +2,9 @@
 -- Ingredients seed (current master list)
 
 TRUNCATE TABLE recipe_lines RESTART IDENTITY CASCADE;
+TRUNCATE TABLE recipe_packaging_lines RESTART IDENTITY CASCADE;
 TRUNCATE TABLE recipes RESTART IDENTITY CASCADE;
+TRUNCATE TABLE packaging_items CASCADE;
 TRUNCATE TABLE ingredients CASCADE;
 
 INSERT INTO ingredients (id, name, stock_cfu_per_g, cost_per_kg_gbp) VALUES
@@ -34,6 +36,18 @@ INSERT INTO ingredients (id, name, stock_cfu_per_g, cost_per_kg_gbp) VALUES
 
 INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
 VALUES ('FTD Cellex TourTurf Thatch', 600000, 2);
+
+INSERT INTO packaging_items (code, name, default_cost_gbp, default_cost_basis) VALUES
+  ('PAKO', 'Pakonap service fee', 0.20, 'per_kg'),
+  ('SACH100G', '100g / 250g Sachets', 0.10, 'per_unit'),
+  ('PC-SACH75G', '75g Sachets', 0.20, 'per_unit'),
+  ('PAIL', '10kg Pail', 11.00, 'per_unit'),
+  ('PAIL-LAB', 'Pail Label', 1.50, 'per_unit'),
+  ('TT-INBOX', 'Inner Box Tour Turf Clay Coated tie cut 2x1kg', 0.57, 'per_unit'),
+  ('TT-INBOXLAB', 'Inner Box Label FTD Tour Turf', 0.155, 'per_unit'),
+  ('TT-ALUP1000', 'Aluminium Pouch 1kg', 0.10, 'per_unit'),
+  ('TT-ALUPB1000', 'Alu Pouch Label', 0.10, 'per_unit'),
+  ('TT-OUTBOX', 'Outer Box Tour Turf 8 x sets (units of 2x1)', 4.08, 'per_unit');
 
 WITH recipe_ref AS (
   SELECT id AS recipe_id
@@ -74,6 +88,42 @@ JOIN (
   ON TRUE
 JOIN ingredients i ON i.id = v.ingredient_id;
 
+WITH recipe_ref AS (
+  SELECT id AS recipe_id
+  FROM recipes
+  WHERE name = 'FTD Cellex TourTurf Thatch'
+)
+INSERT INTO recipe_packaging_lines (
+  recipe_id,
+  packaging_item_code,
+  sort_order,
+  usage_basis,
+  cost_gbp,
+  quantity_multiplier,
+  units_per_pack,
+  quantity_source
+)
+SELECT
+  recipe_ref.recipe_id,
+  v.packaging_item_code,
+  v.sort_order,
+  v.usage_basis,
+  v.cost_gbp,
+  v.quantity_multiplier,
+  v.units_per_pack,
+  v.quantity_source
+FROM recipe_ref
+JOIN (
+  VALUES
+    ('PAKO'::text, 1, 'per_kg'::text, 0.20::numeric, 1::numeric, NULL::numeric, 'kg'::text),
+    ('TT-INBOX'::text, 2, 'per_set'::text, 0.57::numeric, 1::numeric, NULL::numeric, 'sets'::text),
+    ('TT-INBOXLAB'::text, 3, 'per_set'::text, 0.155::numeric, 2::numeric, NULL::numeric, 'sets'::text),
+    ('TT-ALUP1000'::text, 4, 'per_kg'::text, 0.10::numeric, 1::numeric, NULL::numeric, 'kg'::text),
+    ('TT-ALUPB1000'::text, 5, 'per_kg'::text, 0.10::numeric, 1::numeric, NULL::numeric, 'kg'::text),
+    ('TT-OUTBOX'::text, 6, 'per_unit'::text, 4.08::numeric, 1::numeric, 8::numeric, 'sets'::text)
+) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
+  ON TRUE;
+
 INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
 VALUES ('Pond Clear Pure Aqua 50 grams You Garden', 100000, 50);
 
@@ -112,6 +162,40 @@ JOIN (
 ) AS v(ingredient_id, sort_order, target_total_cfu, default_grams, filler_mode, filler_ratio)
   ON TRUE
 JOIN ingredients i ON i.id = v.ingredient_id;
+
+WITH recipe_ref AS (
+  SELECT id AS recipe_id
+  FROM recipes
+  WHERE name = 'Pond Clear Pure Aqua 50 grams You Garden'
+)
+INSERT INTO recipe_packaging_lines (
+  recipe_id,
+  packaging_item_code,
+  sort_order,
+  usage_basis,
+  cost_gbp,
+  quantity_multiplier,
+  units_per_pack,
+  quantity_source
+)
+SELECT
+  recipe_ref.recipe_id,
+  v.packaging_item_code,
+  v.sort_order,
+  v.usage_basis,
+  v.cost_gbp,
+  v.quantity_multiplier,
+  v.units_per_pack,
+  v.quantity_source
+FROM recipe_ref
+JOIN (
+  VALUES
+    ('PAKO'::text, 1, 'per_kg'::text, 0.20::numeric, 1::numeric, NULL::numeric, 'kg'::text),
+    ('PC-SACH75G'::text, 2, 'per_set'::text, 0.20::numeric, 2::numeric, NULL::numeric, 'sets'::text),
+    ('PAIL'::text, 3, 'per_unit'::text, 11.00::numeric, 1::numeric, 10::numeric, 'kg'::text),
+    ('PAIL-LAB'::text, 4, 'per_unit'::text, 1.50::numeric, 1::numeric, 10::numeric, 'kg'::text)
+) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
+  ON TRUE;
 
 INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
 VALUES ('PondClear (GreenEdge)', 50000, 0.15);
@@ -152,3 +236,37 @@ JOIN (
 ) AS v(ingredient_id, sort_order, target_total_cfu, default_grams, filler_mode, filler_ratio)
   ON TRUE
 JOIN ingredients i ON i.id = v.ingredient_id;
+
+WITH recipe_ref AS (
+  SELECT id AS recipe_id
+  FROM recipes
+  WHERE name = 'PondClear (GreenEdge)'
+)
+INSERT INTO recipe_packaging_lines (
+  recipe_id,
+  packaging_item_code,
+  sort_order,
+  usage_basis,
+  cost_gbp,
+  quantity_multiplier,
+  units_per_pack,
+  quantity_source
+)
+SELECT
+  recipe_ref.recipe_id,
+  v.packaging_item_code,
+  v.sort_order,
+  v.usage_basis,
+  v.cost_gbp,
+  v.quantity_multiplier,
+  v.units_per_pack,
+  v.quantity_source
+FROM recipe_ref
+JOIN (
+  VALUES
+    ('PAKO'::text, 1, 'per_kg'::text, 0.20::numeric, 1::numeric, NULL::numeric, 'kg'::text),
+    ('PC-SACH75G'::text, 2, 'per_set'::text, 0.20::numeric, 2::numeric, NULL::numeric, 'sets'::text),
+    ('PAIL'::text, 3, 'per_unit'::text, 11.00::numeric, 1::numeric, 10::numeric, 'kg'::text),
+    ('PAIL-LAB'::text, 4, 'per_unit'::text, 1.50::numeric, 1::numeric, 10::numeric, 'kg'::text)
+) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
+  ON TRUE;

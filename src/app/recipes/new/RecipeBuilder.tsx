@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Ingredient, RecipeWithLines } from "@/lib/db";
 import { parseScientific, formatCfu } from "@/lib/format";
@@ -544,6 +545,15 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
 
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={addRow} className={btnSecondary}>+ Add Row</button>
+        {isEditMode && existingRecipe ? (
+          <Link href={`/recipes/${existingRecipe.id}`} className={btnSecondary}>
+            Cancel
+          </Link>
+        ) : (
+          <Link href="/recipes" className={btnSecondary}>
+            Cancel
+          </Link>
+        )}
         <button type="button" onClick={handleSave} disabled={saving} className={btnPrimary}>
           {saving ? "Saving..." : isEditMode ? "Update Formula" : "Save Formula"}
         </button>

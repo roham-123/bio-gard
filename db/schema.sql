@@ -8,6 +8,14 @@ CREATE TABLE IF NOT EXISTS recipes (
   default_kg_per_set NUMERIC NOT NULL DEFAULT 1 CHECK (default_kg_per_set > 0)
 );
 
+CREATE TABLE IF NOT EXISTS packaging_items (
+  code                TEXT PRIMARY KEY,
+  name                TEXT NOT NULL,
+  default_cost_gbp    NUMERIC NOT NULL DEFAULT 0 CHECK (default_cost_gbp >= 0),
+  default_cost_basis  TEXT NOT NULL DEFAULT 'per_unit' CHECK (default_cost_basis IN ('per_unit','per_kg')),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS ingredients (
   id              TEXT PRIMARY KEY,            -- user-defined code e.g. PRO0235-1E11
   name            TEXT NOT NULL,
@@ -31,6 +39,21 @@ CREATE TABLE IF NOT EXISTS recipe_lines (
 );
 
 CREATE INDEX IF NOT EXISTS idx_recipe_lines_recipe ON recipe_lines(recipe_id);
+
+CREATE TABLE IF NOT EXISTS recipe_packaging_lines (
+  id                  SERIAL PRIMARY KEY,
+  recipe_id           INT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+  packaging_item_code TEXT NOT NULL REFERENCES packaging_items(code),
+  sort_order          INT NOT NULL,
+  usage_basis         TEXT NOT NULL CHECK (usage_basis IN ('per_set','per_kg','per_unit')),
+  cost_gbp            NUMERIC NOT NULL DEFAULT 0 CHECK (cost_gbp >= 0),
+  quantity_multiplier NUMERIC NOT NULL DEFAULT 1 CHECK (quantity_multiplier > 0),
+  units_per_pack      NUMERIC CHECK (units_per_pack > 0),
+  quantity_source     TEXT NOT NULL DEFAULT 'sets' CHECK (quantity_source IN ('sets','kg')),
+  UNIQUE (recipe_id, sort_order)
+);
+
+CREATE INDEX IF NOT EXISTS idx_recipe_packaging_lines_recipe ON recipe_packaging_lines(recipe_id);
 
 -- audit log
 CREATE TABLE IF NOT EXISTS audit_log (

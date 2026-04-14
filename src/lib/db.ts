@@ -43,10 +43,24 @@ export type RecipeLine = {
   filler_ratio: number;
 };
 
+export type RecipePackagingLine = {
+  id: number;
+  recipe_id: number;
+  packaging_item_code: string;
+  packaging_item_name: string;
+  sort_order: number;
+  usage_basis: "per_set" | "per_kg" | "per_unit";
+  cost_gbp: number;
+  quantity_multiplier: number;
+  units_per_pack: number | null;
+  quantity_source: "sets" | "kg";
+};
+
 export type RecipeWithLines = Recipe & {
   lines: (RecipeLine & {
     ingredient: Ingredient;
   })[];
+  packaging_lines: RecipePackagingLine[];
 };
 
 export async function getRecipes(): Promise<Recipe[]> {
@@ -125,12 +139,55 @@ export async function getRecipe(recipeId: number): Promise<RecipeWithLines | nul
       },
     }));
 
+    const packagingResult = await client.query<{
+      id: number;
+      recipe_id: number;
+      packaging_item_code: string;
+      sort_order: number;
+      usage_basis: "per_set" | "per_kg" | "per_unit";
+      cost_gbp: string;
+      quantity_multiplier: string;
+      units_per_pack: string | null;
+      quantity_source: "sets" | "kg";
+      item_name: string;
+    }>(
+      `SELECT rpl.id,
+              rpl.recipe_id,
+              rpl.packaging_item_code,
+              rpl.sort_order,
+              rpl.usage_basis,
+              rpl.cost_gbp,
+              rpl.quantity_multiplier,
+              rpl.units_per_pack,
+              rpl.quantity_source,
+              pi.name AS item_name
+       FROM recipe_packaging_lines rpl
+       JOIN packaging_items pi ON pi.code = rpl.packaging_item_code
+       WHERE rpl.recipe_id = $1
+       ORDER BY rpl.sort_order`,
+      [recipeId]
+    );
+
+    const packaging_lines: RecipePackagingLine[] = packagingResult.rows.map((r) => ({
+      id: r.id,
+      recipe_id: r.recipe_id,
+      packaging_item_code: r.packaging_item_code,
+      packaging_item_name: r.item_name,
+      sort_order: r.sort_order,
+      usage_basis: r.usage_basis,
+      cost_gbp: Number(r.cost_gbp),
+      quantity_multiplier: Number(r.quantity_multiplier),
+      units_per_pack: r.units_per_pack == null ? null : Number(r.units_per_pack),
+      quantity_source: r.quantity_source,
+    }));
+
     return {
       id: recipe.id,
       name: recipe.name,
       default_batch_grams: Number(recipe.default_batch_grams),
       default_kg_per_set: Number(recipe.default_kg_per_set),
       lines,
+      packaging_lines,
     };
   } finally {
     client.release();
