@@ -7,7 +7,11 @@ import {
   updateIngredientCostPerKg as dalUpdateIngredientCostPerKg,
   createRecipe as dalCreateRecipe,
   updateRecipe as dalUpdateRecipe,
+  getPackagingItems as dalGetPackagingItems,
+  createPackagingItem as dalCreatePackagingItem,
+  saveRecipePackagingLines as dalSaveRecipePackagingLines,
   type CreateRecipeLineInput,
+  type CreateRecipePackagingLineInput,
 } from "@/lib/db";
 
 export async function getRecipe(recipeId: number) {
@@ -51,4 +55,24 @@ export async function updateRecipeAction(
   defaultKgPerSet = 1
 ) {
   return dalUpdateRecipe(recipeId, name, defaultBatchGrams, lines, defaultKgPerSet);
+}
+
+export async function getPackagingItemsAction() {
+  return dalGetPackagingItems();
+}
+
+export async function createPackagingItemAction(
+  code: string,
+  name: string,
+  defaultCostGbp: number,
+  defaultCostBasis: string
+) {
+  return dalCreatePackagingItem(code, name, defaultCostGbp, defaultCostBasis);
+}
+
+export async function saveRecipePackagingLinesAction(
+  recipeId: number,
+  lines: CreateRecipePackagingLineInput[]
+) {
+  return dalSaveRecipePackagingLines(recipeId, lines);
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
-import type { RecipeWithLines } from "@/lib/db";
+import type { RecipeWithLines, PackagingItem } from "@/lib/db";
 import {
   calculate,
   recipeToLineInputs,
@@ -20,11 +20,16 @@ import {
   type CurrencyCode,
 } from "@/lib/format";
 import { generateRecipePdf } from "@/lib/pdf";
+import {
+  saveRecipePackagingLinesAction,
+  createPackagingItemAction,
+} from "@/app/actions";
 
 type Props = {
   recipe: RecipeWithLines;
   currency: CurrencyCode;
   gbpToCurrencyRate: number;
+  packagingItems: PackagingItem[];
 };
 
 type PackagingBasis = "per_set" | "per_kg" | "per_unit";
@@ -53,7 +58,7 @@ function recipeToPackagingInputs(recipe: RecipeWithLines): PackagingLineInput[] 
   }));
 }
 
-export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }: Props) {
+export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate, packagingItems: initialPackagingItems }: Props) {
   const defaultBatchGrams = Number(recipe.default_batch_grams);
   const [batchGrams, setBatchGrams] = useState(defaultBatchGrams);
   const [batchInput, setBatchInput] = useState(String(defaultBatchGrams / 1000));
@@ -72,6 +77,113 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
   const [packagingSnapshot, setPackagingSnapshot] = useState<PackagingLineInput[]>(() =>
     recipeToPackagingInputs(recipe)
   );
+  const [masterItems, setMasterItems] = useState<PackagingItem[]>(initialPackagingItems);
+  const [isSavingPackaging, setIsSavingPackaging] = useState(false);
+  const [showAddLine, setShowAddLine] = useState(false);
+  const [addMode, setAddMode] = useState<"existing" | "new">("existing");
+  const [selectedMasterCode, setSelectedMasterCode] = useState("");
+  const [newItemCode, setNewItemCode] = useState("");
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemCost, setNewItemCost] = useState("");
+  const [newItemBasis, setNewItemBasis] = useState<PackagingBasis>("per_set");
+  const [newItemUnitsPerPack, setNewItemUnitsPerPack] = useState("");
+  const [newItemQuantitySource, setNewItemQuantitySource] = useState<"sets" | "kg">("sets");
+  const [newItemMultiplier, setNewItemMultiplier] = useState("1");
+
+  const resetAddForm = useCallback(() => {
+    setShowAddLine(false);
+    setAddMode("existing");
+    setSelectedMasterCode("");
+    setNewItemCode("");
+    setNewItemName("");
+    setNewItemCost("");
+    setNewItemBasis("per_set");
+    setNewItemUnitsPerPack("");
+    setNewItemQuantitySource("sets");
+    setNewItemMultiplier("1");
+  }, []);
+
+  const handleAddLine = useCallback(async () => {
+    if (addMode === "existing") {
+      const master = masterItems.find((m) => m.code === selectedMasterCode);
+      if (!master) return;
+      const basis = master.default_cost_basis === "per_kg" ? "per_kg" : master.default_cost_basis === "per_unit" ? "per_unit" : "per_set";
+      setPackagingLines((prev) => [
+        ...prev,
+        {
+          id: `new-${Date.now()}`,
+          code: master.code,
+          item: master.name,
+          basis: basis as PackagingBasis,
+          costGbp: master.default_cost_gbp,
+          unitsPerPack: undefined,
+          quantitySource: basis === "per_kg" ? "kg" : "sets",
+          quantityMultiplier: 1,
+        },
+      ]);
+    } else {
+      const code = newItemCode.trim().toUpperCase();
+      const name = newItemName.trim();
+      const cost = parseFloat(newItemCost);
+      if (!code || !name || Number.isNaN(cost) || cost < 0) return;
+      try {
+        const created = await createPackagingItemAction(code, name, cost, newItemBasis === "per_kg" ? "per_kg" : newItemBasis === "per_unit" ? "per_unit" : "per_unit");
+        setMasterItems((prev) => [...prev, created]);
+      } catch {
+        // item may already exist if code collision – that's fine, continue adding line
+      }
+      const mult = parseFloat(newItemMultiplier) || 1;
+      const upp = newItemUnitsPerPack ? parseFloat(newItemUnitsPerPack) : undefined;
+      setPackagingLines((prev) => [
+        ...prev,
+        {
+          id: `new-${Date.now()}`,
+          code,
+          item: name,
+          basis: newItemBasis,
+          costGbp: cost,
+          unitsPerPack: upp && upp > 0 ? upp : undefined,
+          quantitySource: newItemBasis === "per_unit" ? "sets" : newItemQuantitySource,
+          quantityMultiplier: newItemBasis === "per_unit" ? 1 : mult > 0 ? mult : 1,
+        },
+      ]);
+    }
+    resetAddForm();
+  }, [addMode, masterItems, selectedMasterCode, newItemCode, newItemName, newItemCost, newItemBasis, newItemUnitsPerPack, newItemQuantitySource, newItemMultiplier, resetAddForm]);
+
+  const handleDeleteLine = useCallback((idx: number) => {
+    setPackagingLines((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const handleSavePackaging = useCallback(async () => {
+    setIsSavingPackaging(true);
+    try {
+      await saveRecipePackagingLinesAction(
+        recipe.id,
+        packagingLines.map((line, i) => ({
+          packagingItemCode: line.code,
+          sortOrder: i + 1,
+          usageBasis: line.basis,
+          costGbp: line.costGbp,
+          quantityMultiplier: line.quantityMultiplier ?? 1,
+          unitsPerPack: line.unitsPerPack ?? null,
+          quantitySource:
+            line.basis === "per_kg"
+              ? ("kg" as const)
+              : line.basis === "per_unit"
+                ? ("sets" as const)
+                : ((line.quantitySource ?? "sets") as "sets" | "kg"),
+        }))
+      );
+      setPackagingSnapshot(packagingLines.map((l) => ({ ...l })));
+      setIsEditingPackaging(false);
+      resetAddForm();
+    } catch (err) {
+      console.error("Failed to save packaging lines:", err);
+    } finally {
+      setIsSavingPackaging(false);
+    }
+  }, [recipe.id, packagingLines, resetAddForm]);
 
   const syncBatchFromInput = useCallback(() => {
     const parsedKg = parseScientific(batchInput);
@@ -124,9 +236,8 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
       } else if (line.basis === "per_kg") quantity = batchKg;
       else if (line.basis === "per_set") quantity = sets;
       else {
-        const source = line.quantitySource === "kg" ? batchKg : sets;
-        const divisor = line.unitsPerPack && line.unitsPerPack > 0 ? line.unitsPerPack : 1;
-        quantity = Math.ceil(source / divisor);
+        const unitsPerSet = line.unitsPerPack && line.unitsPerPack > 0 ? line.unitsPerPack : 1;
+        quantity = sets * unitsPerSet;
       }
       const multiplier = line.quantityMultiplier && line.quantityMultiplier > 0 ? line.quantityMultiplier : 1;
       quantity *= multiplier;
@@ -442,16 +553,19 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
               <>
                 <button
                   type="button"
-                  onClick={() => setIsEditingPackaging(false)}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-800"
+                  disabled={isSavingPackaging}
+                  onClick={handleSavePackaging}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 dark:focus:ring-offset-zinc-800"
                 >
-                  Done
+                  {isSavingPackaging ? "Saving…" : "Save"}
                 </button>
                 <button
                   type="button"
+                  disabled={isSavingPackaging}
                   onClick={() => {
                     setPackagingLines(packagingSnapshot);
                     setIsEditingPackaging(false);
+                    resetAddForm();
                   }}
                   className="rounded-lg border-2 border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
                 >
@@ -476,6 +590,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
           <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
             <thead>
               <tr className="bg-zinc-100 dark:bg-zinc-700/80">
+                {isEditingPackaging && <th className="w-10 px-2 py-3" />}
                 <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">ID</th>
                 <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Item</th>
                 <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">Quantity</th>
@@ -488,6 +603,20 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
               {packagingData.rows.map((row, idx) => (
                 <tr key={row.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+                  {isEditingPackaging && (
+                    <td className="px-2 py-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteLine(idx)}
+                        className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+                        title="Remove line"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                          <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </td>
+                  )}
                   <td className="whitespace-nowrap px-4 py-3 text-left text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                     {row.code}
                   </td>
@@ -520,22 +649,25 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
                           <option value="per_unit">/unit</option>
                         </select>
                         {row.basis === "per_unit" && (
-                          <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={row.unitsPerPack ?? 1}
-                            onChange={(e) => {
-                              const v = parseInt(e.target.value, 10);
-                              setPackagingLines((prev) =>
-                                prev.map((line, i) =>
-                                  i === idx ? { ...line, unitsPerPack: !Number.isNaN(v) && v > 0 ? v : 1 } : line
-                                )
-                              );
-                            }}
-                            className="w-20 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
-                            title="Units per pack"
-                          />
+                          <>
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={row.unitsPerPack ?? 1}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                setPackagingLines((prev) =>
+                                  prev.map((line, i) =>
+                                    i === idx ? { ...line, unitsPerPack: !Number.isNaN(v) && v > 0 ? v : 1 } : line
+                                  )
+                                );
+                              }}
+                              className="w-20 rounded-lg border-2 border-zinc-300 bg-white px-2 py-1 text-right text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100"
+                              title="Units per set"
+                            />
+                            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">/set</span>
+                          </>
                         )}
                       </div>
                     ) : (
@@ -543,7 +675,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
                     )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {formatNumber(row.quantity, { maxDecimals: row.basis === "per_unit" ? 0 : 2 })}
+                    {formatNumber(row.quantity, { maxDecimals: 2 })}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {isEditingPackaging && row.code !== "SACH100G" ? (
@@ -622,7 +754,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             </tbody>
             <tfoot>
               <tr className="bg-zinc-50 dark:bg-zinc-700/50">
-                <td colSpan={4} className="px-4 py-3 text-left text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                <td colSpan={isEditingPackaging ? 5 : 4} className="px-4 py-3 text-left text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
                   Total
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
@@ -638,6 +770,154 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate }
             </tfoot>
           </table>
         </div>
+
+        {isEditingPackaging && (
+          <div className="mt-4">
+            {!showAddLine ? (
+              <button
+                type="button"
+                onClick={() => setShowAddLine(true)}
+                className="rounded-lg border-2 border-dashed border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-emerald-400 hover:text-emerald-600 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-emerald-500 dark:hover:text-emerald-400"
+              >
+                + Add packaging line
+              </button>
+            ) : (
+              <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-800 dark:bg-emerald-950/20">
+                <div className="mb-3 flex items-center gap-3">
+                  <label className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Source:</label>
+                  <select
+                    value={addMode}
+                    onChange={(e) => setAddMode(e.target.value as "existing" | "new")}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                  >
+                    <option value="existing">Choose from master list</option>
+                    <option value="new">Create new item</option>
+                  </select>
+                </div>
+
+                {addMode === "existing" ? (
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Item</label>
+                      <select
+                        value={selectedMasterCode}
+                        onChange={(e) => setSelectedMasterCode(e.target.value)}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                      >
+                        <option value="">Select item…</option>
+                        {masterItems.map((item) => (
+                          <option key={item.code} value={item.code}>
+                            {item.code} — {item.name} ({formatDisplayCurrency(item.default_cost_gbp)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!selectedMasterCode}
+                      onClick={handleAddLine}
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-40 dark:focus:ring-offset-zinc-800"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetAddForm}
+                      className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">ID Code</label>
+                        <input
+                          type="text"
+                          value={newItemCode}
+                          onChange={(e) => setNewItemCode(e.target.value.toUpperCase())}
+                          placeholder="e.g. SACH50G"
+                          className="w-32 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-mono uppercase focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Name</label>
+                        <input
+                          type="text"
+                          value={newItemName}
+                          onChange={(e) => setNewItemName(e.target.value)}
+                          placeholder="e.g. 50g Sachets"
+                          className="w-48 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Cost ({currency})</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={newItemCost}
+                          onChange={(e) => setNewItemCost(e.target.value)}
+                          placeholder="0.00"
+                          className="w-24 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Basis</label>
+                        <select
+                          value={newItemBasis}
+                          onChange={(e) => setNewItemBasis(e.target.value as PackagingBasis)}
+                          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                        >
+                          <option value="per_set">/set</option>
+                          <option value="per_kg">/kg</option>
+                          <option value="per_unit">/unit</option>
+                        </select>
+                      </div>
+                    </div>
+                    {newItemBasis === "per_unit" && (
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Units needed per set</label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={newItemUnitsPerPack}
+                              onChange={(e) => setNewItemUnitsPerPack(e.target.value)}
+                              placeholder="e.g. 4"
+                              className="w-20 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+                            />
+                            <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">/set</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        disabled={!newItemCode.trim() || !newItemName.trim() || !newItemCost}
+                        onClick={handleAddLine}
+                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-40 dark:focus:ring-offset-zinc-800"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetAddForm}
+                        className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Final product summary */}

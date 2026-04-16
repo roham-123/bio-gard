@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getRecipe } from "@/lib/db";
+import { getRecipe, getPackagingItems } from "@/lib/db";
 import RecipeCalculator from "./RecipeCalculator";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export default async function RecipePage({ params }: Props) {
       </div>
     );
   }
-  const recipe = await getRecipe(recipeId);
+  const [recipe, packagingItems] = await Promise.all([getRecipe(recipeId), getPackagingItems()]);
   if (!recipe) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-8">
@@ -55,7 +55,7 @@ export default async function RecipePage({ params }: Props) {
           </h1>
         </header>
         <section className="pt-6">
-          <RecipeCalculator recipe={recipe} currency="GBP" gbpToCurrencyRate={1} />
+          <RecipeCalculator recipe={recipe} currency="GBP" gbpToCurrencyRate={1} packagingItems={packagingItems} />
         </section>
       </div>
     </div>

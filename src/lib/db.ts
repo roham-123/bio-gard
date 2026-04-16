@@ -343,6 +343,97 @@ export async function createRecipe(
   }
 }
 
+export type PackagingItem = {
+  code: string;
+  name: string;
+  default_cost_gbp: number;
+  default_cost_basis: string;
+};
+
+export async function getPackagingItems(): Promise<PackagingItem[]> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<{
+      code: string;
+      name: string;
+      default_cost_gbp: string;
+      default_cost_basis: string;
+    }>("SELECT code, name, default_cost_gbp, default_cost_basis FROM packaging_items ORDER BY code");
+    return r.rows.map((row) => ({
+      code: row.code,
+      name: row.name,
+      default_cost_gbp: Number(row.default_cost_gbp),
+      default_cost_basis: row.default_cost_basis,
+    }));
+  } finally {
+    client.release();
+  }
+}
+
+export async function createPackagingItem(
+  code: string,
+  name: string,
+  defaultCostGbp: number,
+  defaultCostBasis: string
+): Promise<PackagingItem> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<{ code: string; name: string; default_cost_gbp: string; default_cost_basis: string }>(
+      `INSERT INTO packaging_items (code, name, default_cost_gbp, default_cost_basis)
+       VALUES ($1, $2, $3, $4)
+       RETURNING code, name, default_cost_gbp, default_cost_basis`,
+      [code, name, defaultCostGbp, defaultCostBasis]
+    );
+    const row = r.rows[0];
+    const item: PackagingItem = {
+      code: row.code,
+      name: row.name,
+      default_cost_gbp: Number(row.default_cost_gbp),
+      default_cost_basis: row.default_cost_basis,
+    };
+    await logAction(client, "create_packaging_item", "packaging_items", item.code, { new_record: item });
+    return item;
+  } finally {
+    client.release();
+  }
+}
+
+export type CreateRecipePackagingLineInput = {
+  packagingItemCode: string;
+  sortOrder: number;
+  usageBasis: "per_set" | "per_kg" | "per_unit";
+  costGbp: number;
+  quantityMultiplier: number;
+  unitsPerPack: number | null;
+  quantitySource: "sets" | "kg";
+};
+
+export async function saveRecipePackagingLines(
+  recipeId: number,
+  lines: CreateRecipePackagingLineInput[]
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM recipe_packaging_lines WHERE recipe_id = $1", [recipeId]);
+    for (const line of lines) {
+      await client.query(
+        `INSERT INTO recipe_packaging_lines
+           (recipe_id, packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [recipeId, line.packagingItemCode, line.sortOrder, line.usageBasis, line.costGbp, line.quantityMultiplier, line.unitsPerPack, line.quantitySource]
+      );
+    }
+    await logAction(client, "save_recipe_packaging_lines", "recipes", recipeId, { line_count: lines.length });
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function updateRecipe(
   recipeId: number,
   name: string,
