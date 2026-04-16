@@ -28,17 +28,22 @@ export function generateRecipePdf(
     finalTotalCost: number;
     finalCostPerKg: number;
     finalCostPerSet?: number;
-  }
+  },
+  poReference: string
 ): void {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm" });
   let y = 16;
 
   doc.setFontSize(16);
   doc.text("Purchase Order", 14, y);
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text(poReference, 196, y, { align: "right" });
+  doc.setFont("helvetica", "normal");
   y += 10;
 
   doc.setFontSize(12);
-  doc.text(`Microbial Formula: ${recipeName}`, 14, y);
+  doc.text(`Material: ${recipeName}`, 14, y);
   y += 6;
   doc.text(`Batch size: ${formatGrams(batchGrams)} g (${formatKg(batchGrams / 1000)} kg)`, 14, y);
   y += 6;
@@ -92,7 +97,7 @@ export function generateRecipePdf(
   y = tableEndY + 10;
 
   doc.setFontSize(11);
-  doc.text("Packaging", 14, y);
+  doc.text("Service", 14, y);
   y += 4;
 
   const packagingHeaders = ["Item", "Quantity", "Cost", "Cost/Set", "Total Cost"];
@@ -150,14 +155,14 @@ export function generateRecipePdf(
     y = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 6;
   };
 
-  drawSummaryBlock("Microbial Formula", [
+  drawSummaryBlock("Material", [
     ["Total final CFU/g", formatCfu(totals.totalCfu)],
     ["Total cost", formatCurrency(totals.formulaTotalCost)],
     ["Cost per kg", formatCurrency(totals.formulaCostPerKg)],
     ["Cost per set", totals.formulaCostPerSet != null ? formatCurrency(totals.formulaCostPerSet) : "—"],
   ]);
 
-  drawSummaryBlock("Packaging", [
+  drawSummaryBlock("Service", [
     ["Total cost", formatCurrency(totals.packagingTotalCost)],
     ["Cost per set", totals.packagingCostPerSet != null ? formatCurrency(totals.packagingCostPerSet) : "—"],
   ]);
@@ -168,5 +173,5 @@ export function generateRecipePdf(
     ["Cost per set", totals.finalCostPerSet != null ? formatCurrency(totals.finalCostPerSet) : "—"],
   ]);
 
-  doc.save(`formula-microbial-${recipeName.replace(/[^a-z0-9]/gi, "-")}-${batchGrams}g.pdf`);
+  doc.save(`${poReference}-${recipeName.replace(/[^a-z0-9]/gi, "-")}-${batchGrams}g.pdf`);
 }

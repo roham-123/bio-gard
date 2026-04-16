@@ -42,7 +42,7 @@ INSERT INTO packaging_items (code, name, default_cost_gbp, default_cost_basis) V
   ('SACH100G', '100g / 250g Sachets', 0.10, 'per_unit'),
   ('PC-SACH75G', '75g Sachets', 0.20, 'per_unit'),
   ('PAIL', '10kg Pail', 11.00, 'per_unit'),
-  ('PAIL-LAB', 'Pail Label', 1.50, 'per_unit'),
+  ('PAILLAB', 'Pail Label', 1.50, 'per_unit'),
   ('TT-INBOX', 'Inner Box Tour Turf Clay Coated tie cut 2x1kg', 0.57, 'per_unit'),
   ('TT-INBOXLAB', 'Inner Box Label FTD Tour Turf', 0.155, 'per_unit'),
   ('TT-ALUP1000', 'Aluminium Pouch 1kg', 0.10, 'per_unit'),
@@ -193,7 +193,7 @@ JOIN (
     ('PAKO'::text, 1, 'per_kg'::text, 0.20::numeric, 1::numeric, NULL::numeric, 'kg'::text),
     ('PC-SACH75G'::text, 2, 'per_set'::text, 0.20::numeric, 2::numeric, NULL::numeric, 'sets'::text),
     ('PAIL'::text, 3, 'per_unit'::text, 11.00::numeric, 1::numeric, 10::numeric, 'kg'::text),
-    ('PAIL-LAB'::text, 4, 'per_unit'::text, 1.50::numeric, 1::numeric, 10::numeric, 'kg'::text)
+    ('PAILLAB'::text, 4, 'per_unit'::text, 1.50::numeric, 1::numeric, 10::numeric, 'kg'::text)
 ) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
   ON TRUE;
 
@@ -267,6 +267,6 @@ JOIN (
     ('PAKO'::text, 1, 'per_kg'::text, 0.20::numeric, 1::numeric, NULL::numeric, 'kg'::text),
     ('PC-SACH75G'::text, 2, 'per_set'::text, 0.20::numeric, 2::numeric, NULL::numeric, 'sets'::text),
     ('PAIL'::text, 3, 'per_unit'::text, 11.00::numeric, 1::numeric, 10::numeric, 'kg'::text),
-    ('PAIL-LAB'::text, 4, 'per_unit'::text, 1.50::numeric, 1::numeric, 10::numeric, 'kg'::text)
+    ('PAILLAB'::text, 4, 'per_unit'::text, 1.50::numeric, 1::numeric, 10::numeric, 'kg'::text)
 ) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
   ON TRUE;

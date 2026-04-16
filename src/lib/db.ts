@@ -434,6 +434,142 @@ export async function saveRecipePackagingLines(
   }
 }
 
+export type PurchaseOrder = {
+  id: number;
+  po_reference: string;
+  recipe_id: number | null;
+  recipe_name: string;
+  batch_grams: number;
+  units: number;
+  detail: Record<string, unknown>;
+  created_at: string;
+};
+
+export async function createPurchaseOrder(
+  recipeId: number,
+  recipeName: string,
+  batchGrams: number,
+  units: number,
+  detail: Record<string, unknown>
+): Promise<PurchaseOrder> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const lastPo = await client.query<{ po_reference: string }>(
+      `SELECT po_reference FROM purchase_orders ORDER BY id DESC LIMIT 1`
+    );
+
+    let nextNum = 1;
+    if (lastPo.rows.length > 0) {
+      const match = lastPo.rows[0].po_reference.match(/^XX-(\d+)$/);
+      if (match) nextNum = parseInt(match[1], 10) + 1;
+    }
+    const poReference = `XX-${String(nextNum).padStart(4, "0")}`;
+
+    const r = await client.query<{
+      id: number;
+      po_reference: string;
+      recipe_id: number | null;
+      recipe_name: string;
+      batch_grams: string;
+      units: string;
+      detail: Record<string, unknown>;
+      created_at: string;
+    }>(
+      `INSERT INTO purchase_orders (po_reference, recipe_id, recipe_name, batch_grams, units, detail)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, po_reference, recipe_id, recipe_name, batch_grams, units, detail, created_at`,
+      [poReference, recipeId, recipeName, batchGrams, units, JSON.stringify(detail)]
+    );
+
+    const row = r.rows[0];
+    const po: PurchaseOrder = {
+      id: row.id,
+      po_reference: row.po_reference,
+      recipe_id: row.recipe_id,
+      recipe_name: row.recipe_name,
+      batch_grams: Number(row.batch_grams),
+      units: Number(row.units),
+      detail: row.detail,
+      created_at: row.created_at,
+    };
+
+    await logAction(client, "create_purchase_order", "purchase_orders", po.id, {
+      po_reference: po.po_reference,
+      recipe_id: recipeId,
+      recipe_name: recipeName,
+    });
+
+    await client.query("COMMIT");
+    return po;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getPurchaseOrders(filters?: {
+  search?: string;
+  from?: string;
+  to?: string;
+}): Promise<PurchaseOrder[]> {
+  const client = await pool.connect();
+  try {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+    let idx = 1;
+
+    if (filters?.search) {
+      conditions.push(`(po_reference ILIKE $${idx} OR recipe_name ILIKE $${idx})`);
+      params.push(`%${filters.search}%`);
+      idx++;
+    }
+    if (filters?.from) {
+      conditions.push(`created_at >= $${idx}::timestamptz`);
+      params.push(filters.from);
+      idx++;
+    }
+    if (filters?.to) {
+      conditions.push(`created_at < ($${idx}::date + interval '1 day')`);
+      params.push(filters.to);
+      idx++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const r = await client.query<{
+      id: number;
+      po_reference: string;
+      recipe_id: number | null;
+      recipe_name: string;
+      batch_grams: string;
+      units: string;
+      detail: Record<string, unknown>;
+      created_at: string;
+    }>(
+      `SELECT id, po_reference, recipe_id, recipe_name, batch_grams, units, detail, created_at
+       FROM purchase_orders ${where}
+       ORDER BY id DESC`,
+      params
+    );
+
+    return r.rows.map((row) => ({
+      id: row.id,
+      po_reference: row.po_reference,
+      recipe_id: row.recipe_id,
+      recipe_name: row.recipe_name,
+      batch_grams: Number(row.batch_grams),
+      units: Number(row.units),
+      detail: row.detail,
+      created_at: row.created_at,
+    }));
+  } finally {
+    client.release();
+  }
+}
+
 export async function updateRecipe(
   recipeId: number,
   name: string,

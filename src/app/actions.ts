@@ -10,6 +10,8 @@ import {
   getPackagingItems as dalGetPackagingItems,
   createPackagingItem as dalCreatePackagingItem,
   saveRecipePackagingLines as dalSaveRecipePackagingLines,
+  createPurchaseOrder as dalCreatePurchaseOrder,
+  getPurchaseOrders as dalGetPurchaseOrders,
   type CreateRecipeLineInput,
   type CreateRecipePackagingLineInput,
 } from "@/lib/db";
@@ -75,4 +77,22 @@ export async function saveRecipePackagingLinesAction(
   lines: CreateRecipePackagingLineInput[]
 ) {
   return dalSaveRecipePackagingLines(recipeId, lines);
+}
+
+export async function createPurchaseOrderAction(
+  recipeId: number,
+  recipeName: string,
+  batchGrams: number,
+  units: number,
+  detail: Record<string, unknown>
+) {
+  return dalCreatePurchaseOrder(recipeId, recipeName, batchGrams, units, detail);
+}
+
+export async function getPurchaseOrdersAction(filters?: {
+  search?: string;
+  from?: string;
+  to?: string;
+}) {
+  return dalGetPurchaseOrders(filters);
 }

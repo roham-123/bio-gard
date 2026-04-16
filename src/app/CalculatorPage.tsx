@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { Recipe, RecipeWithLines } from "@/lib/db";
-import { getRecipe } from "@/app/actions";
+import type { PackagingItem, Recipe, RecipeWithLines } from "@/lib/db";
+import { getPackagingItemsAction, getRecipe } from "@/app/actions";
 import RecipeCalculator from "@/app/recipes/[id]/RecipeCalculator";
 import type { CurrencyCode } from "@/lib/format";
 
@@ -23,6 +23,7 @@ export default function CalculatorPage({ recipes }: Props) {
   const [submittedSearch, setSubmittedSearch] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [recipe, setRecipe] = useState<RecipeWithLines | null>(null);
+  const [packagingItems, setPackagingItems] = useState<PackagingItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   const filtered = useMemo(() => {
@@ -47,6 +48,20 @@ export default function CalculatorPage({ recipes }: Props) {
   const pickFromSearch = useCallback((id: number) => {
     setSelectedId(id);
     setSubmittedSearch(null);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getPackagingItemsAction()
+      .then((items) => {
+        if (!cancelled) setPackagingItems(items ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setPackagingItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -204,6 +219,7 @@ export default function CalculatorPage({ recipes }: Props) {
               recipe={recipe}
               currency={currency}
               gbpToCurrencyRate={fxRate}
+              packagingItems={packagingItems}
             />
           )}
           {!loading && !recipe && selectedId != null && (

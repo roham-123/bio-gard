@@ -23,13 +23,14 @@ import { generateRecipePdf } from "@/lib/pdf";
 import {
   saveRecipePackagingLinesAction,
   createPackagingItemAction,
+  createPurchaseOrderAction,
 } from "@/app/actions";
 
 type Props = {
   recipe: RecipeWithLines;
   currency: CurrencyCode;
   gbpToCurrencyRate: number;
-  packagingItems: PackagingItem[];
+  packagingItems?: PackagingItem[];
 };
 
 type PackagingBasis = "per_set" | "per_kg" | "per_unit";
@@ -58,7 +59,7 @@ function recipeToPackagingInputs(recipe: RecipeWithLines): PackagingLineInput[] 
   }));
 }
 
-export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate, packagingItems: initialPackagingItems }: Props) {
+export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate, packagingItems: initialPackagingItems = [] }: Props) {
   const defaultBatchGrams = Number(recipe.default_batch_grams);
   const [batchGrams, setBatchGrams] = useState(defaultBatchGrams);
   const [batchInput, setBatchInput] = useState(String(defaultBatchGrams / 1000));
@@ -79,6 +80,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate, 
   );
   const [masterItems, setMasterItems] = useState<PackagingItem[]>(initialPackagingItems);
   const [isSavingPackaging, setIsSavingPackaging] = useState(false);
+  const [isGeneratingPo, setIsGeneratingPo] = useState(false);
   const [showAddLine, setShowAddLine] = useState(false);
   const [addMode, setAddMode] = useState<"existing" | "new">("existing");
   const [selectedMasterCode, setSelectedMasterCode] = useState("");
@@ -233,6 +235,12 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate, 
       if (line.code === "SACH100G") {
         // SACH100G quantity is number of 100g sachets in the batch.
         quantity = batchKg / 0.1;
+      } else if (line.code === "PAIL") {
+        // PAIL is always 1 pail per 10kg of product.
+        quantity = batchKg / 10;
+      } else if (line.code === "PAILLAB") {
+        // PAILLAB is always 1 label per pail.
+        quantity = batchKg / 10;
       } else if (line.basis === "per_kg") quantity = batchKg;
       else if (line.basis === "per_set") quantity = sets;
       else {
@@ -272,6 +280,28 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate, 
   const toDisplayCurrency = (gbpValue: number) => Number(gbpValue) * displayRate;
   const formatDisplayCurrency = (gbpValue: number) =>
     formatCurrency(toDisplayCurrency(Number(gbpValue)), currency);
+  const groupedMasterItems = useMemo(() => {
+    const groups = new Map<string, PackagingItem[]>();
+
+    for (const item of masterItems) {
+      const dashIndex = item.code.indexOf("-");
+      const groupName = dashIndex > 0 ? item.code.slice(0, dashIndex) : "Generic";
+      const existing = groups.get(groupName) ?? [];
+      existing.push(item);
+      groups.set(groupName, existing);
+    }
+
+    const orderedGroupNames = Array.from(groups.keys()).sort((a, b) => {
+      if (a === "Generic") return -1;
+      if (b === "Generic") return 1;
+      return a.localeCompare(b);
+    });
+
+    return orderedGroupNames.map((groupName) => ({
+      groupName,
+      items: (groups.get(groupName) ?? []).sort((a, b) => a.code.localeCompare(b.code)),
+    }));
+  }, [masterItems]);
 
   return (
     <div className="space-y-6">
@@ -502,42 +532,93 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate, 
         <div className="mt-6">
           <button
             type="button"
-            disabled={!result.formulaValid}
-            onClick={() =>
-              generateRecipePdf(
-                recipe.name,
-                batchGrams,
-                units,
-                result.results,
-                packagingData.rows.map((row) => ({
-                  item: row.item,
-                  quantity: row.quantity,
-                  costGbp: row.effectiveCostGbp,
-                  costPerSetGbp: row.costPerSet,
-                  totalGbp: row.total,
-                })),
-                {
-                totalGrams: result.totalGrams,
-                totalCfu: totalFinalCfuPerGram,
-                formulaTotalCost: result.totalCost,
-                formulaCostPerKg: result.costPerKg,
-                formulaCostPerSet: units > 0 ? result.totalCost / units : undefined,
-                packagingTotalCost,
-                packagingCostPerSet: units > 0 ? packagingTotalCost / units : undefined,
-                finalTotalCost,
-                finalCostPerKg,
-                finalCostPerSet: units > 0 ? finalCostPerUnit : undefined,
+            disabled={!result.formulaValid || isGeneratingPo}
+            onClick={async () => {
+              setIsGeneratingPo(true);
+              try {
+                const po = await createPurchaseOrderAction(
+                  recipe.id,
+                  recipe.name,
+                  batchGrams,
+                  units,
+                  {
+                    totalGrams: result.totalGrams,
+                    totalCfu: totalFinalCfuPerGram,
+                    formulaTotalCost: result.totalCost,
+                    formulaCostPerKg: result.costPerKg,
+                    formulaCostPerSet: units > 0 ? result.totalCost / units : null,
+                    packagingTotalCost,
+                    packagingCostPerSet: units > 0 ? packagingTotalCost / units : null,
+                    finalTotalCost,
+                    finalCostPerKg,
+                    finalCostPerSet: units > 0 ? finalCostPerUnit : null,
+                    ingredients: result.results.map((r) => ({
+                      ingredientId: r.ingredientId,
+                      ingredientName: r.ingredientName,
+                      grams: r.grams,
+                      kg: r.grams / 1000,
+                      percent: r.percent,
+                      isBacteria: r.isBacteria,
+                      stockCfuPerG: r.stockCfuPerG,
+                      targetTotalCfu: r.targetTotalCfu,
+                      finalCfuPerGram: r.finalCfuPerGram,
+                      costPerKgGbp: r.costPerKgGbp,
+                      costInProduct: r.costInProduct,
+                    })),
+                    packaging: packagingData.rows.map((row) => ({
+                      code: row.code,
+                      item: row.item,
+                      quantity: row.quantity,
+                      costGbp: row.effectiveCostGbp,
+                      costPerSet: row.costPerSet,
+                      total: row.total,
+                    })),
+                  }
+                );
+                generateRecipePdf(
+                  recipe.name,
+                  batchGrams,
+                  units,
+                  result.results,
+                  packagingData.rows.map((row) => ({
+                    item: row.item,
+                    quantity: row.quantity,
+                    costGbp: row.effectiveCostGbp,
+                    costPerSetGbp: row.costPerSet,
+                    totalGbp: row.total,
+                  })),
+                  {
+                    totalGrams: result.totalGrams,
+                    totalCfu: totalFinalCfuPerGram,
+                    formulaTotalCost: result.totalCost,
+                    formulaCostPerKg: result.costPerKg,
+                    formulaCostPerSet: units > 0 ? result.totalCost / units : undefined,
+                    packagingTotalCost,
+                    packagingCostPerSet: units > 0 ? packagingTotalCost / units : undefined,
+                    finalTotalCost,
+                    finalCostPerKg,
+                    finalCostPerSet: units > 0 ? finalCostPerUnit : undefined,
+                  },
+                  po.po_reference
+                );
+              } catch (err) {
+                console.error("Failed to generate purchase order:", err);
+              } finally {
+                setIsGeneratingPo(false);
               }
-            )
-            }
+            }}
             className={[
               "rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2",
-              result.formulaValid
+              result.formulaValid && !isGeneratingPo
                 ? "bg-zinc-800 text-white hover:bg-zinc-700 focus:ring-zinc-500 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
                 : "cursor-not-allowed bg-zinc-300 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-500",
             ].join(" ")}
           >
-            {result.formulaValid ? "Generate PDF" : "PDF unavailable — fix formula"}
+            {isGeneratingPo
+              ? "Generating…"
+              : result.formulaValid
+                ? "Generate Purchase Order"
+                : "Purchase order unavailable — fix formula"}
           </button>
         </div>
       </div>
@@ -805,10 +886,14 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate, 
                         className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
                       >
                         <option value="">Select item…</option>
-                        {masterItems.map((item) => (
-                          <option key={item.code} value={item.code}>
-                            {item.code} — {item.name} ({formatDisplayCurrency(item.default_cost_gbp)})
-                          </option>
+                        {groupedMasterItems.map(({ groupName, items }) => (
+                          <optgroup key={groupName} label={groupName}>
+                            {items.map((item) => (
+                              <option key={item.code} value={item.code}>
+                                {item.code} — {item.name} ({formatDisplayCurrency(item.default_cost_gbp)})
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
                       </select>
                     </div>
