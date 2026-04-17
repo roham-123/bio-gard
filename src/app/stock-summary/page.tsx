@@ -1,5 +1,5 @@
 import { getStockSummary } from "@/lib/db";
-import StockSummaryPage from "./StockSummaryPage";
+import StockSummaryPage from "@/app/stock-summary/StockSummaryPage";
 
 export const dynamic = "force-dynamic";
 
