@@ -12,6 +12,7 @@ import {
   saveRecipePackagingLines as dalSaveRecipePackagingLines,
   createPurchaseOrder as dalCreatePurchaseOrder,
   getPurchaseOrders as dalGetPurchaseOrders,
+  getStockSummary as dalGetStockSummary,
   type CreateRecipeLineInput,
   type CreateRecipePackagingLineInput,
 } from "@/lib/db";
@@ -95,4 +96,11 @@ export async function getPurchaseOrdersAction(filters?: {
   to?: string;
 }) {
   return dalGetPurchaseOrders(filters);
+}
+
+export async function getStockSummaryAction(filters?: {
+  from?: string;
+  to?: string;
+}) {
+  return dalGetStockSummary(filters);
 }

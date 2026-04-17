@@ -570,6 +570,147 @@ export async function getPurchaseOrders(filters?: {
   }
 }
 
+export type StockSummaryIngredient = {
+  ingredientId: string;
+  ingredientName: string;
+  totalGrams: number;
+  totalKg: number;
+  poCount: number;
+};
+
+export type StockSummaryPackaging = {
+  code: string;
+  item: string;
+  totalQuantity: number;
+  poCount: number;
+};
+
+export type StockSummary = {
+  ingredients: StockSummaryIngredient[];
+  packaging: StockSummaryPackaging[];
+  poCount: number;
+  poReferences: string[];
+  from: string | null;
+  to: string | null;
+};
+
+const STOCK_SUMMARY_EXCLUDED_PACKAGING = new Set(["PAKO"]);
+
+export async function getStockSummary(filters?: {
+  from?: string;
+  to?: string;
+}): Promise<StockSummary> {
+  const client = await pool.connect();
+  try {
+    const conditions: string[] = [];
+    const params: string[] = [];
+    let idx = 1;
+
+    if (filters?.from) {
+      conditions.push(`created_at >= $${idx}::timestamptz`);
+      params.push(filters.from);
+      idx++;
+    }
+    if (filters?.to) {
+      conditions.push(`created_at < ($${idx}::date + interval '1 day')`);
+      params.push(filters.to);
+      idx++;
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const r = await client.query<{
+      po_reference: string;
+      detail: Record<string, unknown>;
+    }>(
+      `SELECT po_reference, detail FROM purchase_orders ${where} ORDER BY id ASC`,
+      params
+    );
+
+    type IngSnap = {
+      ingredientId?: string;
+      ingredientName?: string;
+      grams?: number;
+      kg?: number;
+    };
+    type PkgSnap = {
+      code?: string;
+      item?: string;
+      quantity?: number;
+    };
+
+    const ingMap = new Map<string, StockSummaryIngredient>();
+    const pkgMap = new Map<string, StockSummaryPackaging>();
+    const poReferences: string[] = [];
+
+    for (const row of r.rows) {
+      poReferences.push(row.po_reference);
+      const detail = row.detail ?? {};
+      const ingredients = Array.isArray((detail as { ingredients?: unknown }).ingredients)
+        ? ((detail as { ingredients: IngSnap[] }).ingredients)
+        : [];
+      const packaging = Array.isArray((detail as { packaging?: unknown }).packaging)
+        ? ((detail as { packaging: PkgSnap[] }).packaging)
+        : [];
+
+      for (const ing of ingredients) {
+        if (!ing?.ingredientId) continue;
+        const grams = Number(ing.grams) || 0;
+        const kg = Number(ing.kg) || grams / 1000;
+        const existing = ingMap.get(ing.ingredientId);
+        if (existing) {
+          existing.totalGrams += grams;
+          existing.totalKg += kg;
+          existing.poCount += 1;
+        } else {
+          ingMap.set(ing.ingredientId, {
+            ingredientId: ing.ingredientId,
+            ingredientName: ing.ingredientName ?? ing.ingredientId,
+            totalGrams: grams,
+            totalKg: kg,
+            poCount: 1,
+          });
+        }
+      }
+
+      for (const pkg of packaging) {
+        if (!pkg?.code) continue;
+        if (STOCK_SUMMARY_EXCLUDED_PACKAGING.has(pkg.code)) continue;
+        const qty = Number(pkg.quantity) || 0;
+        const existing = pkgMap.get(pkg.code);
+        if (existing) {
+          existing.totalQuantity += qty;
+          existing.poCount += 1;
+        } else {
+          pkgMap.set(pkg.code, {
+            code: pkg.code,
+            item: pkg.item ?? pkg.code,
+            totalQuantity: qty,
+            poCount: 1,
+          });
+        }
+      }
+    }
+
+    const ingredients = Array.from(ingMap.values()).sort((a, b) =>
+      a.ingredientId.localeCompare(b.ingredientId)
+    );
+    const packaging = Array.from(pkgMap.values()).sort((a, b) =>
+      a.code.localeCompare(b.code)
+    );
+
+    return {
+      ingredients,
+      packaging,
+      poCount: r.rows.length,
+      poReferences,
+      from: filters?.from ?? null,
+      to: filters?.to ?? null,
+    };
+  } finally {
+    client.release();
+  }
+}
+
 export async function updateRecipe(
   recipeId: number,
   name: string,
