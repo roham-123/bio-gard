@@ -48,6 +48,57 @@ export default function PoHistoryPage({ initialOrders }: Props) {
     }
   }, []);
 
+  const toIsoDate = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const applyShortcut = useCallback(
+    async (preset: "last_month" | "last_30_days") => {
+      const now = new Date();
+      let from = "";
+      let to = "";
+
+      if (preset === "last_month") {
+        const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const lastMonthFirst = new Date(firstOfThisMonth.getFullYear(), firstOfThisMonth.getMonth() - 1, 1);
+        const lastMonthLast = new Date(firstOfThisMonth.getTime() - 24 * 60 * 60 * 1000);
+        from = toIsoDate(lastMonthFirst);
+        to = toIsoDate(lastMonthLast);
+      } else if (preset === "last_30_days") {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 29);
+        from = toIsoDate(start);
+        to = toIsoDate(now);
+      }
+
+      setFromDate(from);
+      setToDate(to);
+      setLoading(true);
+      try {
+        const result = await getPurchaseOrdersAction({
+          search: search.trim() || undefined,
+          from: from || undefined,
+          to: to || undefined,
+        });
+        setOrders(result);
+      } catch (err) {
+        console.error("Failed to fetch PO history:", err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [search]
+  );
+
+  const totalVisibleCost = orders.reduce((sum, po) => {
+    const detail = po.detail as Record<string, unknown>;
+    const finalTotalCost = typeof detail.finalTotalCost === "number" ? detail.finalTotalCost : null;
+    return sum + (finalTotalCost ?? 0);
+  }, 0);
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString("en-GB", {
@@ -130,6 +181,22 @@ export default function PoHistoryPage({ initialOrders }: Props) {
               className="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2.5 text-sm text-zinc-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-600 dark:bg-zinc-700/50 dark:text-zinc-100 dark:focus:border-emerald-400 dark:focus:bg-zinc-700"
             />
           </div>
+          <button
+            type="button"
+            onClick={() => applyShortcut("last_month")}
+            disabled={loading}
+            className="rounded-full border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-emerald-400 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+          >
+            Last month
+          </button>
+          <button
+            type="button"
+            onClick={() => applyShortcut("last_30_days")}
+            disabled={loading}
+            className="rounded-full border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-emerald-400 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+          >
+            Last 30 days
+          </button>
           <button
             type="button"
             onClick={runFilter}
@@ -309,7 +376,12 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                 </tbody>
               </table>
               <div className="border-t border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-500 dark:border-zinc-600 dark:bg-zinc-700/50 dark:text-zinc-400">
-                {orders.length} purchase order{orders.length !== 1 ? "s" : ""}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span>
+                    {orders.length} purchase order{orders.length !== 1 ? "s" : ""}
+                  </span>
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-200">Total cost: £{totalVisibleCost.toFixed(2)}</span>
+                </div>
               </div>
             </div>
           )}
