@@ -608,7 +608,7 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
                           {line.ingredientName || line.ingredientId}
                         </td>
                         <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                          {res ? res.grams.toLocaleString("en-GB", { maximumFractionDigits: 3 }) : "—"}
+                          {res ? Math.round(res.grams).toLocaleString("en-GB", { maximumFractionDigits: 0 }) : "—"}
                         </td>
                         <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                           {res ? `${(res.percent * 100).toFixed(2)}%` : "—"}

@@ -435,7 +435,7 @@ export default function RecipeCalculator({ recipe, currency, gbpToCurrencyRate, 
                     )}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {res ? formatGrams(res.grams) : "—"}
+                    {res ? formatNumber(Math.round(res.grams), { maxDecimals: 0 }) : "—"}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                     {res ? formatKg(res.grams / 1000) : "—"}
