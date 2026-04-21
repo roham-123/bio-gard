@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import type { PurchaseOrder } from "@/lib/db";
 import { getPurchaseOrdersAction } from "@/app/actions";
 import { formatKg, formatNumber } from "@/lib/format";
@@ -262,9 +262,8 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                     const isExpanded = expandedId === po.id;
 
                     return (
-                      <>
+                      <Fragment key={po.id}>
                         <tr
-                          key={po.id}
                           onClick={() => toggleExpand(po.id)}
                           className="cursor-pointer transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-700/40"
                         >
@@ -370,7 +369,7 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </tbody>
