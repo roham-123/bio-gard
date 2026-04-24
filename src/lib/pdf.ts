@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { PDFDocument } from "pdf-lib";
 import type { LineResult } from "./calc";
 import { formatGrams, formatKg, formatCfu, formatPercent, formatCurrency } from "./format";
 
@@ -11,7 +12,74 @@ export type PackagingPdfRow = {
   totalGbp: number;
 };
 
-export function generateRecipePdf(
+type SelectedLabelAsset = {
+  fileName: string;
+  mimeType: "image/jpeg" | "image/png" | "application/pdf";
+  blobUrl: string;
+};
+
+function triggerPdfDownload(bytes: Uint8Array, fileName: string): void {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const blob = new Blob([copy.buffer], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function fitImageInA4(imageWidth: number, imageHeight: number) {
+  const pageWidth = 595.28; // A4 portrait width in points
+  const pageHeight = 841.89; // A4 portrait height in points
+  const margin = 24;
+  const maxWidth = pageWidth - margin * 2;
+  const maxHeight = pageHeight - margin * 2;
+  const ratio = Math.min(maxWidth / imageWidth, maxHeight / imageHeight);
+  const width = imageWidth * ratio;
+  const height = imageHeight * ratio;
+  return {
+    pageWidth,
+    pageHeight,
+    width,
+    height,
+    x: (pageWidth - width) / 2,
+    y: (pageHeight - height) / 2,
+  };
+}
+
+async function appendLabelPages(basePdfBuffer: ArrayBuffer, label: SelectedLabelAsset): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(basePdfBuffer);
+  const response = await fetch(label.blobUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to load label asset (${response.status})`);
+  }
+  const labelBuffer = await response.arrayBuffer();
+
+  if (label.mimeType === "application/pdf") {
+    const labelPdf = await PDFDocument.load(labelBuffer);
+    const pages = await doc.copyPages(labelPdf, labelPdf.getPageIndices());
+    pages.forEach((page) => doc.addPage(page));
+    return doc.save();
+  }
+
+  if (label.mimeType === "image/jpeg") {
+    const jpg = await doc.embedJpg(labelBuffer);
+    const frame = fitImageInA4(jpg.width, jpg.height);
+    const page = doc.addPage([frame.pageWidth, frame.pageHeight]);
+    page.drawImage(jpg, { x: frame.x, y: frame.y, width: frame.width, height: frame.height });
+    return doc.save();
+  }
+
+  const png = await doc.embedPng(labelBuffer);
+  const frame = fitImageInA4(png.width, png.height);
+  const page = doc.addPage([frame.pageWidth, frame.pageHeight]);
+  page.drawImage(png, { x: frame.x, y: frame.y, width: frame.width, height: frame.height });
+  return doc.save();
+}
+
+export async function generateRecipePdf(
   recipeName: string,
   batchGrams: number,
   units: number,
@@ -29,8 +97,9 @@ export function generateRecipePdf(
     finalCostPerKg: number;
     finalCostPerSet?: number;
   },
-  poReference: string
-): void {
+  poReference: string,
+  selectedLabel?: SelectedLabelAsset
+): Promise<void> {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm" });
   let y = 16;
 
@@ -173,5 +242,18 @@ export function generateRecipePdf(
     ["Cost per set", totals.finalCostPerSet != null ? formatCurrency(totals.finalCostPerSet) : "—"],
   ]);
 
-  doc.save(`${poReference}-${recipeName.replace(/[^a-z0-9]/gi, "-")}-${batchGrams}g.pdf`);
+  const fileName = `${poReference}-${recipeName.replace(/[^a-z0-9]/gi, "-")}-${batchGrams}g.pdf`;
+  if (!selectedLabel) {
+    doc.save(fileName);
+    return;
+  }
+
+  try {
+    const basePdfBuffer = doc.output("arraybuffer") as ArrayBuffer;
+    const mergedBytes = await appendLabelPages(basePdfBuffer, selectedLabel);
+    triggerPdfDownload(mergedBytes, fileName);
+  } catch (error) {
+    console.error("Failed to append label pages, downloading base PO only:", error);
+    doc.save(fileName);
+  }
 }

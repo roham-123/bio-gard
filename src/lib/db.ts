@@ -56,11 +56,21 @@ export type RecipePackagingLine = {
   quantity_source: "sets" | "kg";
 };
 
+export type RecipeLabel = {
+  id: number;
+  recipe_id: number;
+  file_name: string;
+  mime_type: "image/jpeg" | "image/png" | "application/pdf";
+  blob_url: string;
+  created_at: string;
+};
+
 export type RecipeWithLines = Recipe & {
   lines: (RecipeLine & {
     ingredient: Ingredient;
   })[];
   packaging_lines: RecipePackagingLine[];
+  labels: RecipeLabel[];
 };
 
 export async function getRecipes(): Promise<Recipe[]> {
@@ -181,6 +191,38 @@ export async function getRecipe(recipeId: number): Promise<RecipeWithLines | nul
       quantity_source: r.quantity_source,
     }));
 
+    let labels: RecipeLabel[] = [];
+    try {
+      const labelsResult = await client.query<{
+        id: number;
+        recipe_id: number;
+        file_name: string;
+        mime_type: "image/jpeg" | "image/png" | "application/pdf";
+        blob_url: string;
+        created_at: string;
+      }>(
+        `SELECT id, recipe_id, file_name, mime_type, blob_url, created_at
+         FROM recipe_labels
+         WHERE recipe_id = $1
+         ORDER BY created_at DESC`,
+        [recipeId]
+      );
+      labels = labelsResult.rows.map((r) => ({
+        id: r.id,
+        recipe_id: r.recipe_id,
+        file_name: r.file_name,
+        mime_type: r.mime_type,
+        blob_url: r.blob_url,
+        created_at: r.created_at,
+      }));
+    } catch (error) {
+      const pgError = error as { code?: string };
+      // Backward compatibility: allow app to run before recipe_labels migration is applied.
+      if (pgError.code !== "42P01") {
+        throw error;
+      }
+    }
+
     return {
       id: recipe.id,
       name: recipe.name,
@@ -188,7 +230,110 @@ export async function getRecipe(recipeId: number): Promise<RecipeWithLines | nul
       default_kg_per_set: Number(recipe.default_kg_per_set),
       lines,
       packaging_lines,
+      labels,
     };
+  } finally {
+    client.release();
+  }
+}
+
+export async function createRecipeLabel(
+  recipeId: number,
+  fileName: string,
+  mimeType: "image/jpeg" | "image/png" | "application/pdf",
+  blobUrl: string
+): Promise<RecipeLabel> {
+  const client = await pool.connect();
+  try {
+    let r;
+    try {
+      r = await client.query<{
+        id: number;
+        recipe_id: number;
+        file_name: string;
+        mime_type: "image/jpeg" | "image/png" | "application/pdf";
+        blob_url: string;
+        created_at: string;
+      }>(
+        `INSERT INTO recipe_labels (recipe_id, file_name, mime_type, blob_url)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, recipe_id, file_name, mime_type, blob_url, created_at`,
+        [recipeId, fileName, mimeType, blobUrl]
+      );
+    } catch (error) {
+      const pgError = error as { code?: string };
+      if (pgError.code === "42P01") {
+        throw new Error("Label uploads require DB migration: run db/migrate-recipe-labels.sql");
+      }
+      throw error;
+    }
+    const row = r.rows[0];
+    const label: RecipeLabel = {
+      id: row.id,
+      recipe_id: row.recipe_id,
+      file_name: row.file_name,
+      mime_type: row.mime_type,
+      blob_url: row.blob_url,
+      created_at: row.created_at,
+    };
+    await logAction(client, "create_recipe_label", "recipe_labels", label.id, {
+      recipe_id: recipeId,
+      file_name: fileName,
+      mime_type: mimeType,
+      blob_url: blobUrl,
+    });
+    return label;
+  } finally {
+    client.release();
+  }
+}
+
+export async function deleteRecipeLabel(labelId: number): Promise<RecipeLabel | null> {
+  const client = await pool.connect();
+  try {
+    let r;
+    try {
+      r = await client.query<{
+        id: number;
+        recipe_id: number;
+        file_name: string;
+        mime_type: "image/jpeg" | "image/png" | "application/pdf";
+        blob_url: string;
+        created_at: string;
+      }>(
+        `DELETE FROM recipe_labels
+         WHERE id = $1
+         RETURNING id, recipe_id, file_name, mime_type, blob_url, created_at`,
+        [labelId]
+      );
+    } catch (error) {
+      const pgError = error as { code?: string };
+      if (pgError.code === "42P01") {
+        throw new Error("Label deletes require DB migration: run db/migrate-recipe-labels.sql");
+      }
+      throw error;
+    }
+
+    const row = r.rows[0];
+    if (!row) return null;
+
+    const deleted: RecipeLabel = {
+      id: row.id,
+      recipe_id: row.recipe_id,
+      file_name: row.file_name,
+      mime_type: row.mime_type,
+      blob_url: row.blob_url,
+      created_at: row.created_at,
+    };
+
+    await logAction(client, "delete_recipe_label", "recipe_labels", deleted.id, {
+      recipe_id: deleted.recipe_id,
+      file_name: deleted.file_name,
+      mime_type: deleted.mime_type,
+      blob_url: deleted.blob_url,
+    });
+
+    return deleted;
   } finally {
     client.release();
   }
