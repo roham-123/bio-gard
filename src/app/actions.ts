@@ -163,8 +163,15 @@ export async function uploadRecipeLabelAction(recipeId: number, file: File) {
       throw error;
     }
     fileUrl = blob.url;
+  } else if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+    // Running on Vercel (or any production build) without a blob token: the
+    // local-FS fallback cannot work because the filesystem is read-only, so we
+    // fail with a clear, actionable error.
+    throw new Error(
+      "File uploads are not configured. Set BLOB_READ_WRITE_TOKEN in the Vercel project's Environment Variables."
+    );
   } else {
-    // Local-dev fallback: store under public/uploads when Blob is not configured.
+    // Local-dev fallback only: store under public/uploads when Blob is not configured.
     const relativeDir = path.join("uploads", "recipe-labels", String(recipeId));
     const absoluteDir = path.join(process.cwd(), "public", relativeDir);
     await mkdir(absoluteDir, { recursive: true });
