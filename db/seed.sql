@@ -47,7 +47,13 @@ INSERT INTO packaging_items (code, name, default_cost_gbp, default_cost_basis) V
   ('TT-INBOXLAB', 'Inner Box Label FTD Tour Turf', 0.155, 'per_unit'),
   ('TT-ALUP1000', 'Aluminium Pouch 1kg', 0.10, 'per_unit'),
   ('TT-ALUPB1000', 'Alu Pouch Label', 0.10, 'per_unit'),
-  ('TT-OUTBOX', 'Outer Box Tour Turf 8 x sets (units of 2x1)', 4.08, 'per_unit');
+  ('TT-OUTBOX', 'Outer Box Tour Turf 8 x sets (units of 2x1)', 4.08, 'per_unit'),
+  ('STP-ZIP25', 'Zip Innerbag STP 4x25', 0.30, 'per_unit'),
+  ('STP-ZIPBAG25', 'ZipBag (4x25)', 0.30, 'per_unit'),
+  ('STP-ZIPLAB', 'ZipBag Label', 0.088, 'per_unit'),
+  ('STP-LBOX', 'Large Box', 2.40, 'per_unit'),
+  ('STP-BOXLAB', 'Box Label', 0.25, 'per_unit'),
+  ('STP-LEAF', 'Leaflet', 0.30, 'per_unit');
 
 WITH recipe_ref AS (
   SELECT id AS recipe_id
@@ -191,9 +197,9 @@ FROM recipe_ref
 JOIN (
   VALUES
     ('PAKO'::text, 1, 'per_kg'::text, 0.20::numeric, 1::numeric, NULL::numeric, 'kg'::text),
-    ('PC-SACH75G'::text, 2, 'per_set'::text, 0.20::numeric, 2::numeric, NULL::numeric, 'sets'::text),
-    ('PAIL'::text, 3, 'per_unit'::text, 11.00::numeric, 1::numeric, 10::numeric, 'kg'::text),
-    ('PAILLAB'::text, 4, 'per_unit'::text, 1.50::numeric, 1::numeric, 10::numeric, 'kg'::text)
+    ('PAIL'::text, 2, 'per_unit'::text, 11.00::numeric, 1::numeric, 10::numeric, 'sets'::text),
+    ('PAILLAB'::text, 3, 'per_unit'::text, 1.50::numeric, 1::numeric, 10::numeric, 'sets'::text),
+    ('SACH100G'::text, 4, 'per_unit'::text, 0.10::numeric, 1::numeric, NULL::numeric, 'sets'::text)
 ) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
   ON TRUE;
 
@@ -268,5 +274,77 @@ JOIN (
     ('PC-SACH75G'::text, 2, 'per_set'::text, 0.20::numeric, 2::numeric, NULL::numeric, 'sets'::text),
     ('PAIL'::text, 3, 'per_unit'::text, 11.00::numeric, 1::numeric, 10::numeric, 'kg'::text),
     ('PAILLAB'::text, 4, 'per_unit'::text, 1.50::numeric, 1::numeric, 10::numeric, 'kg'::text)
+) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
+  ON TRUE;
+
+INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
+VALUES ('STP Marine MM3', 100000, 10);
+
+WITH recipe_ref AS (
+  SELECT id AS recipe_id
+  FROM recipes
+  WHERE name = 'STP Marine MM3'
+)
+INSERT INTO recipe_lines (
+  recipe_id,
+  ingredient_id,
+  sort_order,
+  target_total_cfu,
+  default_grams,
+  filler_mode,
+  filler_ratio
+)
+SELECT
+  recipe_ref.recipe_id,
+  v.ingredient_id,
+  v.sort_order,
+  v.target_total_cfu,
+  CASE
+    WHEN i.stock_cfu_per_g > 0 THEN v.target_total_cfu / i.stock_cfu_per_g
+    ELSE v.default_grams
+  END AS default_grams,
+  v.filler_mode,
+  v.filler_ratio
+FROM recipe_ref
+JOIN (
+  VALUES
+    ('MM3'::text, 1, 3e14::numeric, 0::numeric, 'fixed'::text, 0::numeric)
+) AS v(ingredient_id, sort_order, target_total_cfu, default_grams, filler_mode, filler_ratio)
+  ON TRUE
+JOIN ingredients i ON i.id = v.ingredient_id;
+
+WITH recipe_ref AS (
+  SELECT id AS recipe_id
+  FROM recipes
+  WHERE name = 'STP Marine MM3'
+)
+INSERT INTO recipe_packaging_lines (
+  recipe_id,
+  packaging_item_code,
+  sort_order,
+  usage_basis,
+  cost_gbp,
+  quantity_multiplier,
+  units_per_pack,
+  quantity_source
+)
+SELECT
+  recipe_ref.recipe_id,
+  v.packaging_item_code,
+  v.sort_order,
+  v.usage_basis,
+  v.cost_gbp,
+  v.quantity_multiplier,
+  v.units_per_pack,
+  v.quantity_source
+FROM recipe_ref
+JOIN (
+  VALUES
+    ('PAKO'::text, 1, 'per_kg'::text, 0.20::numeric, 1::numeric, NULL::numeric, 'kg'::text),
+    ('STP-ZIPBAG25'::text, 2, 'per_unit'::text, 0.30::numeric, 1::numeric, 4::numeric, 'sets'::text),
+    ('STP-ZIPLAB'::text, 3, 'per_unit'::text, 0.22::numeric, 1::numeric, 4::numeric, 'sets'::text),
+    ('STP-LBOX'::text, 4, 'per_unit'::text, 2.40::numeric, 1::numeric, NULL::numeric, 'sets'::text),
+    ('STP-BOXLAB'::text, 5, 'per_unit'::text, 0.25::numeric, 1::numeric, NULL::numeric, 'sets'::text),
+    ('STP-LEAF'::text, 6, 'per_unit'::text, 0.30::numeric, 1::numeric, NULL::numeric, 'sets'::text)
 ) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
   ON TRUE;
