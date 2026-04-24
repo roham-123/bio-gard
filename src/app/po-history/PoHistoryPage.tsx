@@ -3,13 +3,19 @@
 import { Fragment, useCallback, useState } from "react";
 import type { PurchaseOrder } from "@/lib/db";
 import { getPurchaseOrdersAction } from "@/app/actions";
-import { formatKg, formatNumber } from "@/lib/format";
+import { formatCurrency, formatKg, formatNumber } from "@/lib/format";
+import { useFx } from "@/app/FxProvider";
 
 type Props = {
   initialOrders: PurchaseOrder[];
 };
 
 export default function PoHistoryPage({ initialOrders }: Props) {
+  const { currency, rate } = useFx();
+  const formatDisplayCurrency = useCallback(
+    (gbpValue: number) => formatCurrency(Number(gbpValue) * rate, currency),
+    [currency, rate]
+  );
   const [orders, setOrders] = useState<PurchaseOrder[]>(initialOrders);
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
@@ -298,7 +304,7 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                             {formatNumber(po.units, { maxDecimals: 2 })}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3.5 text-right text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                            {finalTotalCost != null ? `£${finalTotalCost.toFixed(2)}` : "—"}
+                            {finalTotalCost != null ? formatDisplayCurrency(finalTotalCost) : "—"}
                           </td>
                         </tr>
                         {isExpanded && (ingredients.length > 0 || packaging.length > 0) && (
@@ -327,7 +333,7 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                                                 <td className="whitespace-nowrap px-3 py-1.5 font-mono font-semibold text-zinc-700 dark:text-zinc-200">{ing.ingredientId}</td>
                                                 <td className="px-3 py-1.5 text-zinc-900 dark:text-zinc-100">{ing.ingredientName}</td>
                                                 <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{formatKg(ing.kg)}</td>
-                                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-zinc-700 dark:text-zinc-300">£{ing.costInProduct.toFixed(2)}</td>
+                                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(ing.costInProduct)}</td>
                                               </tr>
                                             ))}
                                           </tbody>
@@ -356,7 +362,7 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                                                 <td className="whitespace-nowrap px-3 py-1.5 font-mono font-semibold text-zinc-700 dark:text-zinc-200">{pkg.code}</td>
                                                 <td className="px-3 py-1.5 text-zinc-900 dark:text-zinc-100">{pkg.item}</td>
                                                 <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{formatNumber(pkg.quantity, { maxDecimals: 2 })}</td>
-                                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-zinc-700 dark:text-zinc-300">£{pkg.total.toFixed(2)}</td>
+                                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{formatDisplayCurrency(pkg.total)}</td>
                                               </tr>
                                             ))}
                                           </tbody>
@@ -379,7 +385,7 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                   <span>
                     {orders.length} purchase order{orders.length !== 1 ? "s" : ""}
                   </span>
-                  <span className="font-semibold text-zinc-700 dark:text-zinc-200">Total cost: £{totalVisibleCost.toFixed(2)}</span>
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-200">Total cost: {formatDisplayCurrency(totalVisibleCost)}</span>
                 </div>
               </div>
             </div>

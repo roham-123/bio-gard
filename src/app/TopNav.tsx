@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import CurrencySwitcher from "./CurrencySwitcher";
 
 const links = [
   { href: "/", label: "Products" },
   { href: "/po-history", label: "PO History" },
   { href: "/stock-summary", label: "Stock Summary" },
+  { href: "/fx-rates", label: "FX Rates" },
 ];
 
 export default function TopNav() {
@@ -26,7 +28,7 @@ export default function TopNav() {
         >
           Bio Gard
         </Link>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-1 items-center gap-1">
           {links.map((link) => (
             <Link
               key={link.href}
@@ -41,6 +43,9 @@ export default function TopNav() {
               {link.label}
             </Link>
           ))}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center">
+          <CurrencySwitcher />
         </div>
       </div>
     </nav>

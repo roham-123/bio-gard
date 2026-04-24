@@ -495,6 +495,114 @@ export type PackagingItem = {
   default_cost_basis: string;
 };
 
+export type FxSettings = {
+  mode: "live" | "fixed";
+  fixedRates: {
+    GBP: number;
+    EUR: number;
+    PLN: number;
+    USD: number;
+  };
+  updatedAt: string | null;
+};
+
+export async function getFxSettings(): Promise<FxSettings> {
+  const client = await pool.connect();
+  try {
+    try {
+      const r = await client.query<{
+        mode: "live" | "fixed";
+        fixed_rate_eur: string;
+        fixed_rate_pln: string;
+        fixed_rate_usd: string;
+        updated_at: string;
+      }>(
+        `SELECT mode, fixed_rate_eur, fixed_rate_pln, fixed_rate_usd, updated_at
+         FROM fx_settings
+         WHERE id = 1`
+      );
+      const row = r.rows[0];
+      if (!row) {
+        return {
+          mode: "live",
+          fixedRates: { GBP: 1, EUR: 1.17, PLN: 5.05, USD: 1.27 },
+          updatedAt: null,
+        };
+      }
+      return {
+        mode: row.mode,
+        fixedRates: {
+          GBP: 1,
+          EUR: Number(row.fixed_rate_eur),
+          PLN: Number(row.fixed_rate_pln),
+          USD: Number(row.fixed_rate_usd),
+        },
+        updatedAt: row.updated_at,
+      };
+    } catch (error) {
+      const pgError = error as { code?: string };
+      if (pgError.code === "42P01") {
+        return {
+          mode: "live",
+          fixedRates: { GBP: 1, EUR: 1.17, PLN: 5.05, USD: 1.27 },
+          updatedAt: null,
+        };
+      }
+      throw error;
+    }
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateFxSettings(
+  mode: "live" | "fixed",
+  fixedRates: { EUR: number; PLN: number; USD: number }
+): Promise<FxSettings> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<{
+      mode: "live" | "fixed";
+      fixed_rate_eur: string;
+      fixed_rate_pln: string;
+      fixed_rate_usd: string;
+      updated_at: string;
+    }>(
+      `INSERT INTO fx_settings (id, mode, fixed_rate_eur, fixed_rate_pln, fixed_rate_usd, updated_at)
+       VALUES (1, $1, $2, $3, $4, NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         mode = EXCLUDED.mode,
+         fixed_rate_eur = EXCLUDED.fixed_rate_eur,
+         fixed_rate_pln = EXCLUDED.fixed_rate_pln,
+         fixed_rate_usd = EXCLUDED.fixed_rate_usd,
+         updated_at = NOW()
+       RETURNING mode, fixed_rate_eur, fixed_rate_pln, fixed_rate_usd, updated_at`,
+      [mode, fixedRates.EUR, fixedRates.PLN, fixedRates.USD]
+    );
+
+    const row = r.rows[0];
+    await logAction(client, "update_fx_settings", "fx_settings", 1, {
+      mode: row.mode,
+      fixed_rate_eur: Number(row.fixed_rate_eur),
+      fixed_rate_pln: Number(row.fixed_rate_pln),
+      fixed_rate_usd: Number(row.fixed_rate_usd),
+    });
+
+    return {
+      mode: row.mode,
+      fixedRates: {
+        GBP: 1,
+        EUR: Number(row.fixed_rate_eur),
+        PLN: Number(row.fixed_rate_pln),
+        USD: Number(row.fixed_rate_usd),
+      },
+      updatedAt: row.updated_at,
+    };
+  } finally {
+    client.release();
+  }
+}
+
 export async function getPackagingItems(): Promise<PackagingItem[]> {
   const client = await pool.connect();
   try {

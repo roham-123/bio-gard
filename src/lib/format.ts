@@ -56,7 +56,7 @@ export function formatPercent(value: unknown): string {
   return (toNum(value) * 100).toFixed(2) + "%";
 }
 
-export type CurrencyCode = "GBP" | "EUR" | "PLN";
+export type CurrencyCode = "GBP" | "EUR" | "PLN" | "USD";
 
 export function formatCurrency(value: unknown, currency: CurrencyCode = "GBP"): string {
   const n = toNum(value);

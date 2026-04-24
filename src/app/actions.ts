@@ -16,6 +16,8 @@ import {
   createPurchaseOrder as dalCreatePurchaseOrder,
   getPurchaseOrders as dalGetPurchaseOrders,
   getStockSummary as dalGetStockSummary,
+  getFxSettings as dalGetFxSettings,
+  updateFxSettings as dalUpdateFxSettings,
   createRecipeLabel as dalCreateRecipeLabel,
   deleteRecipeLabel as dalDeleteRecipeLabel,
   type CreateRecipeLineInput,
@@ -108,6 +110,17 @@ export async function getStockSummaryAction(filters?: {
   to?: string;
 }) {
   return dalGetStockSummary(filters);
+}
+
+export async function getFxSettingsAction() {
+  return dalGetFxSettings();
+}
+
+export async function updateFxSettingsAction(
+  mode: "live" | "fixed",
+  fixedRates: { EUR: number; PLN: number; USD: number }
+) {
+  return dalUpdateFxSettings(mode, fixedRates);
 }
 
 export async function uploadRecipeLabelAction(recipeId: number, file: File) {

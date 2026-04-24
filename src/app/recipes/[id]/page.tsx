@@ -55,7 +55,7 @@ export default async function RecipePage({ params }: Props) {
           </h1>
         </header>
         <section className="pt-6">
-          <RecipeCalculator recipe={recipe} currency="GBP" gbpToCurrencyRate={1} packagingItems={packagingItems} />
+          <RecipeCalculator recipe={recipe} packagingItems={packagingItems} />
         </section>
       </div>
     </div>

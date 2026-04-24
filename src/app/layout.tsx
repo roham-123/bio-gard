@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import TopNav from "./TopNav";
+import { FxProvider } from "./FxProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,10 +29,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-zinc-200 font-sans text-zinc-900 antialiased dark:bg-zinc-900 dark:text-zinc-100`}
       >
-        <div className="min-h-screen">
-          <TopNav />
-          {children}
-        </div>
+        <FxProvider>
+          <div className="min-h-screen">
+            <TopNav />
+            {children}
+          </div>
+        </FxProvider>
       </body>
     </html>
   );
