@@ -13,9 +13,9 @@ import { useFx } from "@/app/FxProvider";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { calculateFinishedProductPackaging } from "@/lib/packaging";
 import { generateFinishedProductPdf } from "@/lib/pdf";
-import PackagingSection from "@/components/packaging/PackagingSection";
-import LabelsModal from "@/app/recipes/[id]/components/LabelsModal";
-import DeleteLabelDialog from "@/app/recipes/[id]/components/DeleteLabelDialog";
+import FinishedProductPackagingSection from "@/components/packaging/FinishedProductPackagingSection";
+import LabelsModal from "@/components/labels/LabelsModal";
+import DeleteLabelDialog from "@/components/labels/DeleteLabelDialog";
 import {
   finishedProductToPackagingInputs,
   type PackagingLineInput,
@@ -342,7 +342,7 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
         onConfirm={handleConfirmDeleteLabel}
       />
 
-      <PackagingSection
+      <FinishedProductPackagingSection
         packagingRows={packagingData.rows}
         grandTotal={packagingData.grandTotal}
         costPerUnit={packagingData.costPerUnit}

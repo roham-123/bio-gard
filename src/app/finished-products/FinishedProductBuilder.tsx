@@ -11,7 +11,7 @@ import {
 import { useFx } from "@/app/FxProvider";
 import { formatCurrency } from "@/lib/format";
 import { calculateFinishedProductPackaging } from "@/lib/packaging";
-import PackagingSection from "@/components/packaging/PackagingSection";
+import FinishedProductPackagingSection from "@/components/packaging/FinishedProductPackagingSection";
 import {
   finishedProductToPackagingInputs,
   type PackagingLineInput,
@@ -206,7 +206,7 @@ export default function FinishedProductBuilder({
         </label>
       </div>
 
-      <PackagingSection
+      <FinishedProductPackagingSection
         packagingRows={previewPackaging.rows}
         grandTotal={previewPackaging.grandTotal}
         costPerUnit={previewPackaging.costPerUnit}

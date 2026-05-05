@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import type { PackagingItem } from "@/lib/db";
 import { formatNumber, type CurrencyCode } from "@/lib/format";
 import { createPackagingItemAction } from "@/app/actions";
 import type { PackagingLineInput, PackagingRow, FinishedProductPackagingBasis } from "./types";
+import { groupPackagingMasterItems } from "./utils";
 
 type Props = {
   packagingRows: PackagingRow[];
@@ -25,7 +26,7 @@ type Props = {
   setMasterItems: React.Dispatch<React.SetStateAction<PackagingItem[]>>;
 };
 
-export default function PackagingSection({
+export default function FinishedProductPackagingSection({
   packagingRows,
   grandTotal,
   costPerUnit,
@@ -63,20 +64,7 @@ export default function PackagingSection({
     setNewItemMultiplier("1");
   }, []);
 
-  const groupedMasterItems = useMemo(() => {
-    const groups = new Map<string, PackagingItem[]>();
-    for (const item of masterItems) {
-      const dashIndex = item.code.indexOf("-");
-      const groupName = dashIndex > 0 ? item.code.slice(0, dashIndex) : "Generic";
-      groups.set(groupName, [...(groups.get(groupName) ?? []), item]);
-    }
-    return Array.from(groups.entries())
-      .sort(([a], [b]) => (a === "Generic" ? -1 : b === "Generic" ? 1 : a.localeCompare(b)))
-      .map(([groupName, items]) => ({
-        groupName,
-        items: items.sort((a, b) => a.code.localeCompare(b.code)),
-      }));
-  }, [masterItems]);
+  const groupedMasterItems = groupPackagingMasterItems(masterItems);
 
   const handleAddLine = useCallback(async () => {
     if (addMode === "existing") {

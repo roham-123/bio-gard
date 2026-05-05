@@ -21,14 +21,14 @@ import { useFx } from "@/app/FxProvider";
 import BatchToolbar from "./components/BatchToolbar";
 import FormulaTable from "./components/FormulaTable";
 import FormulaSummary from "./components/FormulaSummary";
-import LabelsModal from "./components/LabelsModal";
-import DeleteLabelDialog from "./components/DeleteLabelDialog";
-import PackagingSection from "./components/PackagingSection";
+import LabelsModal from "@/components/labels/LabelsModal";
+import DeleteLabelDialog from "@/components/labels/DeleteLabelDialog";
+import RecipePackagingSection from "@/components/packaging/RecipePackagingSection";
 import FinalProductSummary from "./components/FinalProductSummary";
 import {
   recipeToPackagingInputs,
   type PackagingLineInput,
-} from "./components/types";
+} from "@/components/packaging/types";
 
 type Props = {
   recipe: RecipeWithLines;
@@ -407,7 +407,7 @@ export default function RecipeCalculator({
         onConfirm={handleConfirmDeleteLabel}
       />
 
-      <PackagingSection
+      <RecipePackagingSection
         packagingRows={packagingData.rows}
         grandTotal={packagingData.grandTotal}
         packagingCostPerKg={packagingCostPerKg}
