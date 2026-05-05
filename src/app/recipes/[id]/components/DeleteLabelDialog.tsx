@@ -1,9 +1,12 @@
 "use client";
 
-import type { RecipeLabel } from "@/lib/db";
+type LabelAsset = {
+  id: number;
+  file_name: string;
+};
 
 type Props = {
-  label: RecipeLabel | null;
+  label: LabelAsset | null;
   isDeleting: boolean;
   onCancel: () => void;
   onConfirm: () => void;

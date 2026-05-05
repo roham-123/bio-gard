@@ -180,6 +180,9 @@ export default function StockSummaryPage({ initialSummary }: Props) {
             <div>
               <span className="font-semibold">Packaging items:</span> {summary.packaging.length}
             </div>
+            <div>
+              <span className="font-semibold">Finished products:</span> {summary.finishedProducts.length}
+            </div>
           </div>
           {summary.poReferences.length > 0 && (
             <div className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
@@ -196,115 +199,178 @@ export default function StockSummaryPage({ initialSummary }: Props) {
             </p>
           </div>
         ) : (
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            {/* Ingredients */}
-            <section>
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-                Ingredients Used
-              </h2>
-              {summary.ingredients.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">
-                  No ingredients recorded.
-                </p>
-              ) : (
-                <div className="overflow-x-auto rounded-xl border-2 border-zinc-200 bg-white shadow-md dark:border-zinc-600 dark:bg-zinc-800">
-                  <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
-                    <thead>
-                      <tr className="bg-zinc-100 dark:bg-zinc-700/80">
-                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                          ID
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                          Ingredient
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                          Grams
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                          Kg
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                          POs
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
-                      {summary.ingredients.map((ing) => (
-                        <tr key={ing.ingredientId} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
-                          <td className="whitespace-nowrap px-4 py-2.5 text-sm font-mono font-bold text-zinc-700 dark:text-zinc-200">
-                            {ing.ingredientId}
-                          </td>
-                          <td className="px-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-100">
-                            {ing.ingredientName}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                            {formatGrams(ing.totalGrams)} g
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                            {formatKg(ing.totalKg)} kg
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
-                            {ing.poCount}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
+          <>
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div className="space-y-6">
+                {/* Ingredients */}
+                <section>
+                  <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                    Ingredients Used
+                  </h2>
+                  {summary.ingredients.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">
+                      No ingredients recorded.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border-2 border-zinc-200 bg-white shadow-md dark:border-zinc-600 dark:bg-zinc-800">
+                      <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
+                        <thead>
+                          <tr className="bg-zinc-100 dark:bg-zinc-700/80">
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              ID
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              Ingredient
+                            </th>
+                            <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              Grams
+                            </th>
+                            <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              Kg
+                            </th>
+                            <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              POs
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
+                          {summary.ingredients.map((ing) => (
+                            <tr key={ing.ingredientId} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+                              <td className="whitespace-nowrap px-4 py-2.5 text-sm font-mono font-bold text-zinc-700 dark:text-zinc-200">
+                                {ing.ingredientId}
+                              </td>
+                              <td className="px-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-100">
+                                {ing.ingredientName}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                                {formatGrams(ing.totalGrams)} g
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                                {formatKg(ing.totalKg)} kg
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
+                                {ing.poCount}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
 
-            {/* Packaging */}
-            <section>
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-                Packaging Used
-              </h2>
-              {summary.packaging.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">
-                  No packaging recorded.
-                </p>
-              ) : (
-                <div className="overflow-x-auto rounded-xl border-2 border-zinc-200 bg-white shadow-md dark:border-zinc-600 dark:bg-zinc-800">
-                  <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
-                    <thead>
-                      <tr className="bg-zinc-100 dark:bg-zinc-700/80">
-                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                          Code
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                          Item
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                          Quantity
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                          POs
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
-                      {summary.packaging.map((pkg) => (
-                        <tr key={pkg.code} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
-                          <td className="whitespace-nowrap px-4 py-2.5 text-sm font-mono font-bold text-zinc-700 dark:text-zinc-200">
-                            {pkg.code}
-                          </td>
-                          <td className="px-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-100">
-                            {pkg.item}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                            {formatNumber(pkg.totalQuantity, { maxDecimals: 2 })}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
-                            {pkg.poCount}
-                          </td>
+                <section>
+                  <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                    Finished Products Used
+                  </h2>
+                  {summary.finishedProducts.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">
+                      No finished products recorded.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border-2 border-zinc-200 bg-white shadow-md dark:border-zinc-600 dark:bg-zinc-800">
+                      <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
+                        <thead>
+                          <tr className="bg-zinc-100 dark:bg-zinc-700/80">
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              SKU
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              Product
+                            </th>
+                            <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              Packs
+                            </th>
+                            <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              Units
+                            </th>
+                            <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                              POs
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
+                          {summary.finishedProducts.map((product) => (
+                            <tr
+                              key={`${product.finishedProductId ?? "name"}-${product.productName}`}
+                              className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40"
+                            >
+                              <td className="whitespace-nowrap px-4 py-2.5 text-sm text-zinc-700 dark:text-zinc-300">
+                                {product.sku ?? "—"}
+                              </td>
+                              <td className="px-4 py-2.5 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                {product.productName}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                                {formatNumber(product.totalPacks, { maxDecimals: 2 })}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                                {formatNumber(product.totalUnits, { maxDecimals: 2 })}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
+                                {product.poCount}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              {/* Packaging */}
+              <section>
+                <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                  Packaging Used
+                </h2>
+                {summary.packaging.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">
+                    No packaging recorded.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border-2 border-zinc-200 bg-white shadow-md dark:border-zinc-600 dark:bg-zinc-800">
+                    <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-600">
+                      <thead>
+                        <tr className="bg-zinc-100 dark:bg-zinc-700/80">
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                            Code
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                            Item
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                            Quantity
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                            POs
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          </div>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
+                        {summary.packaging.map((pkg) => (
+                          <tr key={pkg.code} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+                            <td className="whitespace-nowrap px-4 py-2.5 text-sm font-mono font-bold text-zinc-700 dark:text-zinc-200">
+                              {pkg.code}
+                            </td>
+                            <td className="px-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-100">
+                              {pkg.item}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                              {formatNumber(pkg.totalQuantity, { maxDecimals: 2 })}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2.5 text-right text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
+                              {pkg.poCount}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            </div>
+          </>
         )}
       </div>
     </div>

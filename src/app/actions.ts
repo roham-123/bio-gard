@@ -10,18 +10,28 @@ import {
   updateIngredientCostPerKg as dalUpdateIngredientCostPerKg,
   createRecipe as dalCreateRecipe,
   updateRecipe as dalUpdateRecipe,
+  getFinishedProducts as dalGetFinishedProducts,
+  getFinishedProduct as dalGetFinishedProduct,
+  createFinishedProduct as dalCreateFinishedProduct,
+  updateFinishedProduct as dalUpdateFinishedProduct,
+  saveFinishedProductPackagingLines as dalSaveFinishedProductPackagingLines,
   getPackagingItems as dalGetPackagingItems,
   createPackagingItem as dalCreatePackagingItem,
   saveRecipePackagingLines as dalSaveRecipePackagingLines,
   createPurchaseOrder as dalCreatePurchaseOrder,
+  createFinishedProductPurchaseOrder as dalCreateFinishedProductPurchaseOrder,
   getPurchaseOrders as dalGetPurchaseOrders,
   getStockSummary as dalGetStockSummary,
   getFxSettings as dalGetFxSettings,
   updateFxSettings as dalUpdateFxSettings,
   createRecipeLabel as dalCreateRecipeLabel,
   deleteRecipeLabel as dalDeleteRecipeLabel,
+  createFinishedProductLabel as dalCreateFinishedProductLabel,
+  deleteFinishedProductLabel as dalDeleteFinishedProductLabel,
   type CreateRecipeLineInput,
   type CreateRecipePackagingLineInput,
+  type CreateFinishedProductInput,
+  type CreateFinishedProductPackagingLineInput,
 } from "@/lib/db";
 
 export async function getRecipe(recipeId: number) {
@@ -67,6 +77,25 @@ export async function updateRecipeAction(
   return dalUpdateRecipe(recipeId, name, defaultBatchGrams, lines, defaultKgPerSet);
 }
 
+export async function getFinishedProductsAction(filters?: { search?: string }) {
+  return dalGetFinishedProducts(filters);
+}
+
+export async function getFinishedProductAction(productId: number) {
+  return dalGetFinishedProduct(productId);
+}
+
+export async function createFinishedProductAction(input: CreateFinishedProductInput) {
+  return dalCreateFinishedProduct(input);
+}
+
+export async function updateFinishedProductAction(
+  productId: number,
+  input: CreateFinishedProductInput
+) {
+  return dalUpdateFinishedProduct(productId, input);
+}
+
 export async function getPackagingItemsAction() {
   return dalGetPackagingItems();
 }
@@ -87,6 +116,13 @@ export async function saveRecipePackagingLinesAction(
   return dalSaveRecipePackagingLines(recipeId, lines);
 }
 
+export async function saveFinishedProductPackagingLinesAction(
+  productId: number,
+  lines: CreateFinishedProductPackagingLineInput[]
+) {
+  return dalSaveFinishedProductPackagingLines(productId, lines);
+}
+
 export async function createPurchaseOrderAction(
   recipeId: number,
   recipeName: string,
@@ -95,6 +131,15 @@ export async function createPurchaseOrderAction(
   detail: Record<string, unknown>
 ) {
   return dalCreatePurchaseOrder(recipeId, recipeName, batchGrams, units, detail);
+}
+
+export async function createFinishedProductPurchaseOrderAction(
+  finishedProductId: number,
+  productName: string,
+  units: number,
+  detail: Record<string, unknown>
+) {
+  return dalCreateFinishedProductPurchaseOrder(finishedProductId, productName, units, detail);
 }
 
 export async function getPurchaseOrdersAction(filters?: {
@@ -196,6 +241,91 @@ export async function deleteRecipeLabelAction(labelId: number) {
   }
 
   const deleted = await dalDeleteRecipeLabel(labelId);
+  if (!deleted) return { deleted: false };
+
+  try {
+    if (deleted.blob_url.startsWith("/uploads/")) {
+      const absolutePath = path.join(process.cwd(), "public", deleted.blob_url.replace(/^\/+/, ""));
+      await unlink(absolutePath);
+    } else if (process.env.BLOB_READ_WRITE_TOKEN) {
+      await del(deleted.blob_url);
+    }
+  } catch (error) {
+    console.error("Label file cleanup failed:", error);
+  }
+
+  return { deleted: true };
+}
+
+export async function uploadFinishedProductLabelAction(finishedProductId: number, file: File) {
+  if (!file) {
+    throw new Error("No file selected.");
+  }
+  if (!Number.isFinite(finishedProductId) || finishedProductId <= 0) {
+    throw new Error("Invalid finished product ID.");
+  }
+
+  const allowedMimeTypes = new Set(["image/jpeg", "image/png", "application/pdf"]);
+  if (!allowedMimeTypes.has(file.type)) {
+    throw new Error("Unsupported file type. Use JPG, PNG, or PDF.");
+  }
+
+  const maxBytes = 50 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    throw new Error("File is too large. Maximum size is 50MB.");
+  }
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const key = `finished-product-labels/${finishedProductId}/${Date.now()}-${safeName}`;
+  let fileUrl: string;
+
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    let blob;
+    try {
+      blob = await put(key, file, {
+        access: "public",
+        contentType: file.type,
+        addRandomSuffix: false,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("BLOB_READ_WRITE_TOKEN")) {
+        throw new Error(
+          "Vercel Blob is not configured. Set BLOB_READ_WRITE_TOKEN in your environment variables (.env.local for local dev, Vercel project settings for production)."
+        );
+      }
+      throw error;
+    }
+    fileUrl = blob.url;
+  } else if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+    throw new Error(
+      "File uploads are not configured. Set BLOB_READ_WRITE_TOKEN in the Vercel project's Environment Variables."
+    );
+  } else {
+    const relativeDir = path.join("uploads", "finished-product-labels", String(finishedProductId));
+    const absoluteDir = path.join(process.cwd(), "public", relativeDir);
+    await mkdir(absoluteDir, { recursive: true });
+    const fileName = `${Date.now()}-${safeName}`;
+    const absoluteFilePath = path.join(absoluteDir, fileName);
+    const fileBuffer = Buffer.from(await file.arrayBuffer());
+    await writeFile(absoluteFilePath, fileBuffer);
+    fileUrl = `/${relativeDir}/${fileName}`.replaceAll("\\", "/");
+  }
+
+  return dalCreateFinishedProductLabel(
+    finishedProductId,
+    file.name,
+    file.type as "image/jpeg" | "image/png" | "application/pdf",
+    fileUrl
+  );
+}
+
+export async function deleteFinishedProductLabelAction(labelId: number) {
+  if (!Number.isFinite(labelId) || labelId <= 0) {
+    throw new Error("Invalid label ID.");
+  }
+
+  const deleted = await dalDeleteFinishedProductLabel(labelId);
   if (!deleted) return { deleted: false };
 
   try {

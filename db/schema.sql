@@ -55,6 +55,32 @@ CREATE TABLE IF NOT EXISTS recipe_packaging_lines (
 
 CREATE INDEX IF NOT EXISTS idx_recipe_packaging_lines_recipe ON recipe_packaging_lines(recipe_id);
 
+CREATE TABLE IF NOT EXISTS finished_products (
+  id            SERIAL PRIMARY KEY,
+  name          TEXT NOT NULL UNIQUE,
+  sku           TEXT UNIQUE,
+  default_units_per_pack NUMERIC NOT NULL DEFAULT 1 CHECK (default_units_per_pack > 0),
+  base_unit_cost_gbp NUMERIC NOT NULL DEFAULT 0 CHECK (base_unit_cost_gbp >= 0),
+  notes         TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS finished_product_packaging_lines (
+  id                  SERIAL PRIMARY KEY,
+  finished_product_id INT NOT NULL REFERENCES finished_products(id) ON DELETE CASCADE,
+  packaging_item_code TEXT NOT NULL REFERENCES packaging_items(code),
+  sort_order          INT NOT NULL,
+  usage_basis         TEXT NOT NULL CHECK (usage_basis IN ('per_unit','per_pack')),
+  cost_gbp            NUMERIC NOT NULL DEFAULT 0 CHECK (cost_gbp >= 0),
+  quantity_multiplier NUMERIC NOT NULL DEFAULT 1 CHECK (quantity_multiplier > 0),
+  units_per_pack      NUMERIC CHECK (units_per_pack > 0),
+  UNIQUE (finished_product_id, sort_order)
+);
+
+CREATE INDEX IF NOT EXISTS idx_finished_product_packaging_lines_product
+  ON finished_product_packaging_lines(finished_product_id);
+
 -- recipe label assets (images or PDFs)
 CREATE TABLE IF NOT EXISTS recipe_labels (
   id            SERIAL PRIMARY KEY,
@@ -85,11 +111,15 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   recipe_name   TEXT NOT NULL,
   batch_grams   NUMERIC NOT NULL,
   units         NUMERIC NOT NULL DEFAULT 0,
+  source_type   TEXT NOT NULL DEFAULT 'recipe' CHECK (source_type IN ('recipe','finished_product')),
+  finished_product_id INT REFERENCES finished_products(id) ON DELETE SET NULL,
+  product_name  TEXT,
   detail        JSONB NOT NULL DEFAULT '{}',
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_purchase_orders_created ON purchase_orders(created_at);
 CREATE INDEX IF NOT EXISTS idx_purchase_orders_recipe ON purchase_orders(recipe_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_finished_product ON purchase_orders(finished_product_id);
 
 -- audit log
 CREATE TABLE IF NOT EXISTS audit_log (

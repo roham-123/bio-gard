@@ -246,13 +246,13 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                       Date
                     </th>
                     <th className="px-4 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                      Recipe
+                      Product
                     </th>
                     <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                      Batch (kg)
+                      Batch / Packs
                     </th>
                     <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                      Sets
+                      Sets / Units
                     </th>
                     <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
                       Total Cost
@@ -266,6 +266,9 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                     const ingredients = (detail.ingredients ?? []) as IngredientSnapshot[];
                     const packaging = (detail.packaging ?? []) as PackagingSnapshot[];
                     const isExpanded = expandedId === po.id;
+                    const isFinishedProduct = po.source_type === "finished_product";
+                    const displayName = po.product_name ?? po.recipe_name;
+                    const packs = typeof detail.packs === "number" ? detail.packs : null;
 
                     return (
                       <Fragment key={po.id}>
@@ -295,10 +298,17 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                             <span className="ml-2 text-zinc-400 dark:text-zinc-500">{formatTime(po.created_at)}</span>
                           </td>
                           <td className="px-4 py-3.5 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                            {po.recipe_name}
+                            {displayName}
+                            <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300">
+                              {isFinishedProduct ? "Finished" : "Formula"}
+                            </span>
                           </td>
                           <td className="whitespace-nowrap px-4 py-3.5 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-                            {formatKg(po.batch_grams / 1000)}
+                            {isFinishedProduct
+                              ? packs != null
+                                ? formatNumber(packs, { maxDecimals: 2 })
+                                : "—"
+                              : formatKg(po.batch_grams / 1000)}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3.5 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
                             {formatNumber(po.units, { maxDecimals: 2 })}

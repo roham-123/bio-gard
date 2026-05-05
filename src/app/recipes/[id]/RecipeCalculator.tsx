@@ -9,6 +9,7 @@ import {
   type LineResult,
 } from "@/lib/calc";
 import { formatCurrency, parseScientific } from "@/lib/format";
+import { calculateRecipePackaging } from "@/lib/packaging";
 import { generateRecipePdf } from "@/lib/pdf";
 import {
   saveRecipePackagingLinesAction,
@@ -106,38 +107,14 @@ export default function RecipeCalculator({
     [batchGrams, kgPerUnit]
   );
 
-  const packagingData = useMemo(() => {
-    const batchKg = batchGrams / 1000;
-    const sets = units;
-    const rows = packagingLines.map((line) => {
-      const effectiveCostGbp =
-        line.code === "SACH100G" ? (batchKg >= 100 ? 0.1 : 0.2) : line.costGbp;
-      let quantity = 0;
-      if (line.code === "SACH100G") {
-        quantity = batchKg / 0.1;
-      } else if (line.code === "PAIL") {
-        quantity = batchKg / 10;
-      } else if (line.code === "PAILLAB") {
-        quantity = batchKg / 10;
-      } else if (line.basis === "per_kg") quantity = batchKg;
-      else if (line.basis === "per_set") quantity = sets;
-      else {
-        const unitsPerSet = line.unitsPerPack && line.unitsPerPack > 0 ? line.unitsPerPack : 1;
-        quantity = sets * unitsPerSet;
-      }
-      const multiplier = line.quantityMultiplier && line.quantityMultiplier > 0 ? line.quantityMultiplier : 1;
-      quantity *= multiplier;
-      const total = quantity * effectiveCostGbp;
-      const costPerSet = sets > 0 ? total / sets : 0;
-      return { ...line, effectiveCostGbp, quantity, total, costPerSet };
-    });
-    const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
-    return { rows, grandTotal };
-  }, [packagingLines, batchGrams, units]);
+  const packagingData = useMemo(
+    () => calculateRecipePackaging(packagingLines, batchGrams, units),
+    [packagingLines, batchGrams, units]
+  );
 
   const packagingTotalCost = packagingData.grandTotal;
-  const packagingCostPerKg = batchGrams > 0 ? packagingTotalCost / (batchGrams / 1000) : 0;
-  const packagingCostPerUnit = units > 0 ? packagingTotalCost / units : 0;
+  const packagingCostPerKg = packagingData.costPerKg;
+  const packagingCostPerUnit = packagingData.costPerUnit;
 
   const formulaTotalCost = result.totalCost;
   const formulaCostPerKg = batchGrams > 0 ? formulaTotalCost / (batchGrams / 1000) : 0;
@@ -187,7 +164,12 @@ export default function RecipeCalculator({
         packagingLines.map((line, i) => ({
           packagingItemCode: line.code,
           sortOrder: i + 1,
-          usageBasis: line.basis,
+          usageBasis:
+            line.basis === "per_kg"
+              ? "per_kg"
+              : line.basis === "per_unit"
+                ? "per_unit"
+                : "per_set",
           costGbp: line.costGbp,
           quantityMultiplier: line.quantityMultiplier ?? 1,
           unitsPerPack: line.unitsPerPack ?? null,

@@ -257,3 +257,123 @@ export async function generateRecipePdf(
     doc.save(fileName);
   }
 }
+
+export async function generateFinishedProductPdf(
+  productName: string,
+  units: number,
+  unitsPerPack: number,
+  packagingRows: PackagingPdfRow[],
+  totals: {
+    packs: number;
+    baseUnitCost: number;
+    productTotalCost: number;
+    packagingTotalCost: number;
+    packagingCostPerUnit: number;
+    packagingCostPerPack: number;
+    finalTotalCost: number;
+    finalCostPerUnit: number;
+    finalCostPerPack: number;
+  },
+  poReference: string,
+  selectedLabel?: SelectedLabelAsset
+): Promise<void> {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm" });
+  let y = 16;
+
+  doc.setFontSize(16);
+  doc.text("Purchase Order", 14, y);
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text(poReference, 196, y, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  y += 10;
+
+  doc.setFontSize(12);
+  doc.text(`Finished product: ${productName}`, 14, y);
+  y += 6;
+  doc.text(`Units: ${units}`, 14, y);
+  y += 6;
+  doc.text(`Units per pack: ${unitsPerPack}`, 14, y);
+  y += 6;
+  doc.text(`Packs: ${totals.packs}`, 14, y);
+  y += 10;
+
+  const packagingBody = packagingRows.map((row) => [
+    row.item,
+    String(Number(row.quantity.toFixed(2))),
+    formatCurrency(row.costGbp),
+    formatCurrency(row.costPerSetGbp),
+    formatCurrency(row.totalGbp),
+  ]);
+  packagingBody.push([
+    "Total",
+    "",
+    "",
+    formatCurrency(totals.packagingCostPerUnit),
+    formatCurrency(totals.packagingTotalCost),
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [["Packaging item", "Quantity", "Cost", "Cost/Unit", "Total Cost"]],
+    body: packagingBody,
+    styles: { fontSize: 8 },
+    margin: { left: 14 },
+    tableWidth: "auto",
+  });
+
+  y = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 10;
+
+  const drawSummaryBlock = (title: string, rowsData: string[][]) => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(title, 14, y);
+    y += 2;
+    doc.setFont("helvetica", "normal");
+    autoTable(doc, {
+      startY: y,
+      body: rowsData,
+      styles: { fontSize: 8, cellPadding: 1.8 },
+      margin: { left: 14 },
+      tableWidth: 90,
+      theme: "grid",
+      columnStyles: {
+        0: { cellWidth: 52, fontStyle: "bold" },
+        1: { cellWidth: 38, halign: "right" },
+      },
+    });
+    y = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 6;
+  };
+
+  drawSummaryBlock("Product", [
+    ["Cost per pack", formatCurrency(totals.baseUnitCost)],
+    ["Product total cost", formatCurrency(totals.productTotalCost)],
+  ]);
+
+  drawSummaryBlock("Packaging", [
+    ["Total cost", formatCurrency(totals.packagingTotalCost)],
+    ["Cost per unit", formatCurrency(totals.packagingCostPerUnit)],
+    ["Cost per pack", formatCurrency(totals.packagingCostPerPack)],
+  ]);
+
+  drawSummaryBlock("Final Product", [
+    ["Total cost", formatCurrency(totals.finalTotalCost)],
+    ["Cost per unit", formatCurrency(totals.finalCostPerUnit)],
+    ["Cost per pack", formatCurrency(totals.finalCostPerPack)],
+  ]);
+
+  const fileName = `${poReference}-${productName.replace(/[^a-z0-9]/gi, "-")}-${units}units.pdf`;
+  if (!selectedLabel) {
+    doc.save(fileName);
+    return;
+  }
+
+  try {
+    const basePdfBuffer = doc.output("arraybuffer") as ArrayBuffer;
+    const mergedBytes = await appendLabelPages(basePdfBuffer, selectedLabel);
+    triggerPdfDownload(mergedBytes, fileName);
+  } catch (error) {
+    console.error("Failed to append label pages, downloading base PO only:", error);
+    doc.save(fileName);
+  }
+}

@@ -65,12 +65,66 @@ export type RecipeLabel = {
   created_at: string;
 };
 
+export type FinishedProductLabel = {
+  id: number;
+  finished_product_id: number;
+  file_name: string;
+  mime_type: "image/jpeg" | "image/png" | "application/pdf";
+  blob_url: string;
+  created_at: string;
+};
+
 export type RecipeWithLines = Recipe & {
   lines: (RecipeLine & {
     ingredient: Ingredient;
   })[];
   packaging_lines: RecipePackagingLine[];
   labels: RecipeLabel[];
+};
+
+export type FinishedProduct = {
+  id: number;
+  name: string;
+  sku: string | null;
+  default_units_per_pack: number;
+  base_unit_cost_gbp: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FinishedProductPackagingLine = {
+  id: number;
+  finished_product_id: number;
+  packaging_item_code: string;
+  packaging_item_name: string;
+  sort_order: number;
+  usage_basis: "per_unit" | "per_pack";
+  cost_gbp: number;
+  quantity_multiplier: number;
+  units_per_pack: number | null;
+};
+
+export type FinishedProductWithPackagingLines = FinishedProduct & {
+  packaging_lines: FinishedProductPackagingLine[];
+  labels: FinishedProductLabel[];
+};
+
+export type CreateFinishedProductInput = {
+  name: string;
+  sku: string | null;
+  defaultUnitsPerPack: number;
+  baseUnitCostGbp: number;
+  notes: string | null;
+};
+
+export type CreateFinishedProductPackagingLineInput = {
+  packagingItemCode: string;
+  sortOrder: number;
+  usageBasis: "per_unit" | "per_pack";
+  costGbp: number;
+  quantityMultiplier: number;
+  unitsPerPack: number | null;
 };
 
 export async function getRecipes(): Promise<Recipe[]> {
@@ -237,6 +291,262 @@ export async function getRecipe(recipeId: number): Promise<RecipeWithLines | nul
   }
 }
 
+type FinishedProductRow = {
+  id: number;
+  name: string;
+  sku: string | null;
+  default_units_per_pack: string;
+  base_unit_cost_gbp: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapFinishedProduct(row: FinishedProductRow): FinishedProduct {
+  return {
+    id: row.id,
+    name: row.name,
+    sku: row.sku,
+    default_units_per_pack: Number(row.default_units_per_pack),
+    base_unit_cost_gbp: Number(row.base_unit_cost_gbp),
+    notes: row.notes,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+export async function getFinishedProducts(filters?: {
+  search?: string;
+}): Promise<FinishedProduct[]> {
+  const client = await pool.connect();
+  try {
+    const params: string[] = [];
+    let where = "";
+    if (filters?.search?.trim()) {
+      params.push(`%${filters.search.trim()}%`);
+      where = "WHERE name ILIKE $1 OR sku ILIKE $1";
+    }
+    const r = await client.query<FinishedProductRow>(
+      `SELECT id, name, sku, default_units_per_pack, base_unit_cost_gbp, notes, created_at, updated_at
+       FROM finished_products
+       ${where}
+       ORDER BY name`,
+      params
+    );
+    return r.rows.map(mapFinishedProduct);
+  } finally {
+    client.release();
+  }
+}
+
+export async function getFinishedProduct(
+  productId: number
+): Promise<FinishedProductWithPackagingLines | null> {
+  const client = await pool.connect();
+  try {
+    const productResult = await client.query<FinishedProductRow>(
+      `SELECT id, name, sku, default_units_per_pack, base_unit_cost_gbp, notes, created_at, updated_at
+       FROM finished_products
+       WHERE id = $1`,
+      [productId]
+    );
+    const productRow = productResult.rows[0];
+    if (!productRow) return null;
+
+    const packagingResult = await client.query<{
+      id: number;
+      finished_product_id: number;
+      packaging_item_code: string;
+      sort_order: number;
+      usage_basis: "per_unit" | "per_pack";
+      cost_gbp: string;
+      quantity_multiplier: string;
+      units_per_pack: string | null;
+      item_name: string;
+    }>(
+      `SELECT fppl.id,
+              fppl.finished_product_id,
+              fppl.packaging_item_code,
+              fppl.sort_order,
+              fppl.usage_basis,
+              fppl.cost_gbp,
+              fppl.quantity_multiplier,
+              fppl.units_per_pack,
+              pi.name AS item_name
+       FROM finished_product_packaging_lines fppl
+       JOIN packaging_items pi ON pi.code = fppl.packaging_item_code
+       WHERE fppl.finished_product_id = $1
+       ORDER BY fppl.sort_order`,
+      [productId]
+    );
+
+    const packaging_lines: FinishedProductPackagingLine[] = packagingResult.rows.map((r) => ({
+      id: r.id,
+      finished_product_id: r.finished_product_id,
+      packaging_item_code: r.packaging_item_code,
+      packaging_item_name: r.item_name,
+      sort_order: r.sort_order,
+      usage_basis: r.usage_basis,
+      cost_gbp: Number(r.cost_gbp),
+      quantity_multiplier: Number(r.quantity_multiplier),
+      units_per_pack: r.units_per_pack == null ? null : Number(r.units_per_pack),
+    }));
+
+    let labels: FinishedProductLabel[] = [];
+    try {
+      const labelsResult = await client.query<{
+        id: number;
+        finished_product_id: number;
+        file_name: string;
+        mime_type: "image/jpeg" | "image/png" | "application/pdf";
+        blob_url: string;
+        created_at: string;
+      }>(
+        `SELECT id, finished_product_id, file_name, mime_type, blob_url, created_at
+         FROM finished_product_labels
+         WHERE finished_product_id = $1
+         ORDER BY created_at DESC`,
+        [productId]
+      );
+      labels = labelsResult.rows.map((r) => ({
+        id: r.id,
+        finished_product_id: r.finished_product_id,
+        file_name: r.file_name,
+        mime_type: r.mime_type,
+        blob_url: r.blob_url,
+        created_at: r.created_at,
+      }));
+    } catch (error) {
+      const pgError = error as { code?: string };
+      // Backward compatibility: allow app to run before finished_product_labels migration is applied.
+      if (pgError.code !== "42P01") {
+        throw error;
+      }
+    }
+
+    return {
+      ...mapFinishedProduct(productRow),
+      packaging_lines,
+      labels,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function createFinishedProduct(
+  input: CreateFinishedProductInput
+): Promise<{ id: number }> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const r = await client.query<{ id: number }>(
+      `INSERT INTO finished_products (name, sku, default_units_per_pack, base_unit_cost_gbp, notes)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [
+        input.name,
+        input.sku?.trim() ? input.sku.trim() : null,
+        input.defaultUnitsPerPack,
+        input.baseUnitCostGbp,
+        input.notes?.trim() ? input.notes.trim() : null,
+      ]
+    );
+    const productId = r.rows[0].id;
+    await logAction(client, "create_finished_product", "finished_products", productId, {
+      name: input.name,
+      sku: input.sku,
+      default_units_per_pack: input.defaultUnitsPerPack,
+      base_unit_cost_gbp: input.baseUnitCostGbp,
+    });
+    await client.query("COMMIT");
+    return { id: productId };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateFinishedProduct(
+  productId: number,
+  input: CreateFinishedProductInput
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE finished_products
+       SET name = $1,
+           sku = $2,
+           default_units_per_pack = $3,
+           base_unit_cost_gbp = $4,
+           notes = $5,
+           updated_at = NOW()
+       WHERE id = $6`,
+      [
+        input.name,
+        input.sku?.trim() ? input.sku.trim() : null,
+        input.defaultUnitsPerPack,
+        input.baseUnitCostGbp,
+        input.notes?.trim() ? input.notes.trim() : null,
+        productId,
+      ]
+    );
+    await logAction(client, "update_finished_product", "finished_products", productId, {
+      name: input.name,
+      sku: input.sku,
+      default_units_per_pack: input.defaultUnitsPerPack,
+      base_unit_cost_gbp: input.baseUnitCostGbp,
+    });
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function saveFinishedProductPackagingLines(
+  productId: number,
+  lines: CreateFinishedProductPackagingLineInput[]
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM finished_product_packaging_lines WHERE finished_product_id = $1", [
+      productId,
+    ]);
+    for (const line of lines) {
+      await client.query(
+        `INSERT INTO finished_product_packaging_lines
+           (finished_product_id, packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          productId,
+          line.packagingItemCode,
+          line.sortOrder,
+          line.usageBasis,
+          line.costGbp,
+          line.quantityMultiplier,
+          line.unitsPerPack,
+        ]
+      );
+    }
+    await logAction(client, "save_finished_product_packaging_lines", "finished_products", productId, {
+      line_count: lines.length,
+    });
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function createRecipeLabel(
   recipeId: number,
   fileName: string,
@@ -328,6 +638,114 @@ export async function deleteRecipeLabel(labelId: number): Promise<RecipeLabel | 
 
     await logAction(client, "delete_recipe_label", "recipe_labels", deleted.id, {
       recipe_id: deleted.recipe_id,
+      file_name: deleted.file_name,
+      mime_type: deleted.mime_type,
+      blob_url: deleted.blob_url,
+    });
+
+    return deleted;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createFinishedProductLabel(
+  finishedProductId: number,
+  fileName: string,
+  mimeType: "image/jpeg" | "image/png" | "application/pdf",
+  blobUrl: string
+): Promise<FinishedProductLabel> {
+  const client = await pool.connect();
+  try {
+    let r;
+    try {
+      r = await client.query<{
+        id: number;
+        finished_product_id: number;
+        file_name: string;
+        mime_type: "image/jpeg" | "image/png" | "application/pdf";
+        blob_url: string;
+        created_at: string;
+      }>(
+        `INSERT INTO finished_product_labels (finished_product_id, file_name, mime_type, blob_url)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, finished_product_id, file_name, mime_type, blob_url, created_at`,
+        [finishedProductId, fileName, mimeType, blobUrl]
+      );
+    } catch (error) {
+      const pgError = error as { code?: string };
+      if (pgError.code === "42P01") {
+        throw new Error(
+          "Finished product label uploads require DB migration: run db/migrate-finished-product-labels.sql"
+        );
+      }
+      throw error;
+    }
+    const row = r.rows[0];
+    const label: FinishedProductLabel = {
+      id: row.id,
+      finished_product_id: row.finished_product_id,
+      file_name: row.file_name,
+      mime_type: row.mime_type,
+      blob_url: row.blob_url,
+      created_at: row.created_at,
+    };
+    await logAction(client, "create_finished_product_label", "finished_product_labels", label.id, {
+      finished_product_id: finishedProductId,
+      file_name: fileName,
+      mime_type: mimeType,
+      blob_url: blobUrl,
+    });
+    return label;
+  } finally {
+    client.release();
+  }
+}
+
+export async function deleteFinishedProductLabel(
+  labelId: number
+): Promise<FinishedProductLabel | null> {
+  const client = await pool.connect();
+  try {
+    let r;
+    try {
+      r = await client.query<{
+        id: number;
+        finished_product_id: number;
+        file_name: string;
+        mime_type: "image/jpeg" | "image/png" | "application/pdf";
+        blob_url: string;
+        created_at: string;
+      }>(
+        `DELETE FROM finished_product_labels
+         WHERE id = $1
+         RETURNING id, finished_product_id, file_name, mime_type, blob_url, created_at`,
+        [labelId]
+      );
+    } catch (error) {
+      const pgError = error as { code?: string };
+      if (pgError.code === "42P01") {
+        throw new Error(
+          "Finished product label deletes require DB migration: run db/migrate-finished-product-labels.sql"
+        );
+      }
+      throw error;
+    }
+
+    const row = r.rows[0];
+    if (!row) return null;
+
+    const deleted: FinishedProductLabel = {
+      id: row.id,
+      finished_product_id: row.finished_product_id,
+      file_name: row.file_name,
+      mime_type: row.mime_type,
+      blob_url: row.blob_url,
+      created_at: row.created_at,
+    };
+
+    await logAction(client, "delete_finished_product_label", "finished_product_labels", deleted.id, {
+      finished_product_id: deleted.finished_product_id,
       file_name: deleted.file_name,
       mime_type: deleted.mime_type,
       blob_url: deleted.blob_url,
@@ -694,6 +1112,9 @@ export type PurchaseOrder = {
   recipe_name: string;
   batch_grams: number;
   units: number;
+  source_type: "recipe" | "finished_product";
+  finished_product_id: number | null;
+  product_name: string | null;
   detail: Record<string, unknown>;
   created_at: string;
 };
@@ -744,6 +1165,9 @@ export async function createPurchaseOrder(
       recipe_name: row.recipe_name,
       batch_grams: Number(row.batch_grams),
       units: Number(row.units),
+      source_type: "recipe",
+      finished_product_id: null,
+      product_name: row.recipe_name,
       detail: row.detail,
       created_at: row.created_at,
     };
@@ -752,6 +1176,79 @@ export async function createPurchaseOrder(
       po_reference: po.po_reference,
       recipe_id: recipeId,
       recipe_name: recipeName,
+    });
+
+    await client.query("COMMIT");
+    return po;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createFinishedProductPurchaseOrder(
+  finishedProductId: number,
+  productName: string,
+  units: number,
+  detail: Record<string, unknown>
+): Promise<PurchaseOrder> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const lastPo = await client.query<{ po_reference: string }>(
+      `SELECT po_reference FROM purchase_orders ORDER BY id DESC LIMIT 1`
+    );
+
+    let nextNum = 1;
+    if (lastPo.rows.length > 0) {
+      const match = lastPo.rows[0].po_reference.match(/^XX-(\d+)$/);
+      if (match) nextNum = parseInt(match[1], 10) + 1;
+    }
+    const poReference = `XX-${String(nextNum).padStart(4, "0")}`;
+
+    const r = await client.query<{
+      id: number;
+      po_reference: string;
+      recipe_id: number | null;
+      recipe_name: string;
+      batch_grams: string;
+      units: string;
+      source_type: "recipe" | "finished_product";
+      finished_product_id: number | null;
+      product_name: string | null;
+      detail: Record<string, unknown>;
+      created_at: string;
+    }>(
+      `INSERT INTO purchase_orders
+         (po_reference, recipe_id, recipe_name, batch_grams, units, source_type, finished_product_id, product_name, detail)
+       VALUES ($1, NULL, $2, 0, $3, 'finished_product', $4, $2, $5)
+       RETURNING id, po_reference, recipe_id, recipe_name, batch_grams, units, source_type, finished_product_id, product_name, detail, created_at`,
+      [poReference, productName, units, finishedProductId, JSON.stringify(detail)]
+    );
+
+    const row = r.rows[0];
+    const po: PurchaseOrder = {
+      id: row.id,
+      po_reference: row.po_reference,
+      recipe_id: row.recipe_id,
+      recipe_name: row.recipe_name,
+      batch_grams: Number(row.batch_grams),
+      units: Number(row.units),
+      source_type: row.source_type,
+      finished_product_id: row.finished_product_id,
+      product_name: row.product_name,
+      detail: row.detail,
+      created_at: row.created_at,
+    };
+
+    await logAction(client, "create_purchase_order", "purchase_orders", po.id, {
+      po_reference: po.po_reference,
+      source_type: "finished_product",
+      finished_product_id: finishedProductId,
+      product_name: productName,
     });
 
     await client.query("COMMIT");
@@ -776,7 +1273,7 @@ export async function getPurchaseOrders(filters?: {
     let idx = 1;
 
     if (filters?.search) {
-      conditions.push(`(po_reference ILIKE $${idx} OR recipe_name ILIKE $${idx})`);
+      conditions.push(`(po_reference ILIKE $${idx} OR recipe_name ILIKE $${idx} OR product_name ILIKE $${idx})`);
       params.push(`%${filters.search}%`);
       idx++;
     }
@@ -799,10 +1296,14 @@ export async function getPurchaseOrders(filters?: {
       recipe_name: string;
       batch_grams: string;
       units: string;
+      source_type: "recipe" | "finished_product";
+      finished_product_id: number | null;
+      product_name: string | null;
       detail: Record<string, unknown>;
       created_at: string;
     }>(
-      `SELECT id, po_reference, recipe_id, recipe_name, batch_grams, units, detail, created_at
+      `SELECT id, po_reference, recipe_id, recipe_name, batch_grams, units,
+              source_type, finished_product_id, product_name, detail, created_at
        FROM purchase_orders ${where}
        ORDER BY id DESC`,
       params
@@ -815,6 +1316,9 @@ export async function getPurchaseOrders(filters?: {
       recipe_name: row.recipe_name,
       batch_grams: Number(row.batch_grams),
       units: Number(row.units),
+      source_type: row.source_type,
+      finished_product_id: row.finished_product_id,
+      product_name: row.product_name,
       detail: row.detail,
       created_at: row.created_at,
     }));
@@ -838,9 +1342,19 @@ export type StockSummaryPackaging = {
   poCount: number;
 };
 
+export type StockSummaryFinishedProduct = {
+  finishedProductId: number | null;
+  productName: string;
+  sku: string | null;
+  totalUnits: number;
+  totalPacks: number;
+  poCount: number;
+};
+
 export type StockSummary = {
   ingredients: StockSummaryIngredient[];
   packaging: StockSummaryPackaging[];
+  finishedProducts: StockSummaryFinishedProduct[];
   poCount: number;
   poReferences: string[];
   from: string | null;
@@ -873,9 +1387,13 @@ export async function getStockSummary(filters?: {
 
     const r = await client.query<{
       po_reference: string;
+      source_type: "recipe" | "finished_product";
+      finished_product_id: number | null;
+      product_name: string | null;
       detail: Record<string, unknown>;
     }>(
-      `SELECT po_reference, detail FROM purchase_orders ${where} ORDER BY id ASC`,
+      `SELECT po_reference, source_type, finished_product_id, product_name, detail
+       FROM purchase_orders ${where} ORDER BY id ASC`,
       params
     );
 
@@ -890,9 +1408,16 @@ export async function getStockSummary(filters?: {
       item?: string;
       quantity?: number;
     };
+    type FinishedProductSnap = {
+      productName?: string;
+      sku?: string | null;
+      units?: number;
+      packs?: number;
+    };
 
     const ingMap = new Map<string, StockSummaryIngredient>();
     const pkgMap = new Map<string, StockSummaryPackaging>();
+    const finishedMap = new Map<string, StockSummaryFinishedProduct>();
     const poReferences: string[] = [];
 
     for (const row of r.rows) {
@@ -904,6 +1429,35 @@ export async function getStockSummary(filters?: {
       const packaging = Array.isArray((detail as { packaging?: unknown }).packaging)
         ? ((detail as { packaging: PkgSnap[] }).packaging)
         : [];
+      const finishedProductDetail = detail as FinishedProductSnap;
+
+      if (row.source_type === "finished_product") {
+        const productName = String(
+          finishedProductDetail.productName ?? row.product_name ?? "Finished Product"
+        );
+        const sku =
+          typeof finishedProductDetail.sku === "string" && finishedProductDetail.sku.trim()
+            ? finishedProductDetail.sku.trim()
+            : null;
+        const units = Number(finishedProductDetail.units) || 0;
+        const packs = Number(finishedProductDetail.packs) || 0;
+        const key = row.finished_product_id != null ? `id:${row.finished_product_id}` : `name:${productName}`;
+        const existing = finishedMap.get(key);
+        if (existing) {
+          existing.totalUnits += units;
+          existing.totalPacks += packs;
+          existing.poCount += 1;
+        } else {
+          finishedMap.set(key, {
+            finishedProductId: row.finished_product_id,
+            productName,
+            sku,
+            totalUnits: units,
+            totalPacks: packs,
+            poCount: 1,
+          });
+        }
+      }
 
       for (const ing of ingredients) {
         if (!ing?.ingredientId) continue;
@@ -950,10 +1504,14 @@ export async function getStockSummary(filters?: {
     const packaging = Array.from(pkgMap.values()).sort((a, b) =>
       a.code.localeCompare(b.code)
     );
+    const finishedProducts = Array.from(finishedMap.values()).sort((a, b) =>
+      a.productName.localeCompare(b.productName)
+    );
 
     return {
       ingredients,
       packaging,
+      finishedProducts,
       poCount: r.rows.length,
       poReferences,
       from: filters?.from ?? null,

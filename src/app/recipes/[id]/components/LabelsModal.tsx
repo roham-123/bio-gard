@@ -1,18 +1,24 @@
 "use client";
 
 import Image from "next/image";
-import type { RecipeLabel } from "@/lib/db";
+
+type LabelAsset = {
+  id: number;
+  file_name: string;
+  mime_type: "image/jpeg" | "image/png" | "application/pdf";
+  blob_url: string;
+};
 
 type Props = {
   open: boolean;
-  labels: RecipeLabel[];
+  labels: LabelAsset[];
   selectedLabelId: number | null;
   isUploading: boolean;
   uploadError: string | null;
   onClose: () => void;
   onSelect: (id: number) => void;
   onUpload: (file: File) => Promise<void>;
-  onRequestDelete: (label: RecipeLabel) => void;
+  onRequestDelete: (label: LabelAsset) => void;
 };
 
 export default function LabelsModal({
