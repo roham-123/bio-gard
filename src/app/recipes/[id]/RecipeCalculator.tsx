@@ -35,6 +35,11 @@ type Props = {
   packagingItems?: PackagingItem[];
 };
 
+type LabelToDelete = {
+  id: number;
+  file_name: string;
+} | null;
+
 export default function RecipeCalculator({
   recipe,
   packagingItems: initialPackagingItems = [],
@@ -66,7 +71,7 @@ export default function RecipeCalculator({
   const [isLabelsModalOpen, setIsLabelsModalOpen] = useState(false);
   const [isUploadingLabel, setIsUploadingLabel] = useState(false);
   const [labelUploadError, setLabelUploadError] = useState<string | null>(null);
-  const [labelToDelete, setLabelToDelete] = useState<RecipeLabel | null>(null);
+  const [labelToDelete, setLabelToDelete] = useState<LabelToDelete>(null);
   const [isDeletingLabel, setIsDeletingLabel] = useState(false);
 
   const [isGeneratingPo, setIsGeneratingPo] = useState(false);
@@ -294,6 +299,8 @@ export default function RecipeCalculator({
           finalCostPerSet: units > 0 ? finalCostPerUnit : undefined,
         },
         po.po_reference,
+        currency,
+        displayRate,
         selectedLabel != null
           ? {
               fileName: selectedLabel.file_name,
@@ -320,6 +327,8 @@ export default function RecipeCalculator({
     finalCostPerUnit,
     selectedLabel,
     packagingData,
+    currency,
+    displayRate,
   ]);
 
   return (
@@ -388,7 +397,7 @@ export default function RecipeCalculator({
         onClose={() => setIsLabelsModalOpen(false)}
         onSelect={setSelectedLabelId}
         onUpload={handleUploadLabel}
-        onRequestDelete={setLabelToDelete}
+        onRequestDelete={(label) => setLabelToDelete(label)}
       />
 
       <DeleteLabelDialog

@@ -2,7 +2,14 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { PDFDocument } from "pdf-lib";
 import type { LineResult } from "./calc";
-import { formatGrams, formatKg, formatCfu, formatPercent, formatCurrency } from "./format";
+import {
+  formatGrams,
+  formatKg,
+  formatCfu,
+  formatPercent,
+  formatCurrency,
+  type CurrencyCode,
+} from "./format";
 
 export type PackagingPdfRow = {
   item: string;
@@ -17,6 +24,15 @@ type SelectedLabelAsset = {
   mimeType: "image/jpeg" | "image/png" | "application/pdf";
   blobUrl: string;
 };
+
+function formatPdfCurrency(
+  gbpValue: number,
+  currency: CurrencyCode,
+  gbpToCurrencyRate: number
+): string {
+  const rate = Number.isFinite(gbpToCurrencyRate) && gbpToCurrencyRate > 0 ? gbpToCurrencyRate : 1;
+  return formatCurrency(gbpValue * rate, currency);
+}
 
 function triggerPdfDownload(bytes: Uint8Array, fileName: string): void {
   const copy = new Uint8Array(bytes.byteLength);
@@ -98,6 +114,8 @@ export async function generateRecipePdf(
     finalCostPerSet?: number;
   },
   poReference: string,
+  currency: CurrencyCode,
+  gbpToCurrencyRate: number,
   selectedLabel?: SelectedLabelAsset
 ): Promise<void> {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm" });
@@ -149,8 +167,8 @@ export async function generateRecipePdf(
     r.isBacteria ? formatCfu(r.stockCfuPerG) : "—",
     r.isBacteria ? formatCfu(r.targetTotalCfu) : "—",
     r.isBacteria ? formatCfu(r.finalCfuPerGram) : "—",
-    formatCurrency(r.costPerKgGbp),
-    formatCurrency(r.costInProduct),
+    formatPdfCurrency(r.costPerKgGbp, currency, gbpToCurrencyRate),
+    formatPdfCurrency(r.costInProduct, currency, gbpToCurrencyRate),
   ]);
 
   autoTable(doc, {
@@ -173,16 +191,18 @@ export async function generateRecipePdf(
   const packagingBody = packagingRows.map((row) => [
     row.item,
     String(Number(row.quantity.toFixed(2))),
-    formatCurrency(row.costGbp),
-    units > 0 ? formatCurrency(row.costPerSetGbp) : "—",
-    formatCurrency(row.totalGbp),
+    formatPdfCurrency(row.costGbp, currency, gbpToCurrencyRate),
+    units > 0 ? formatPdfCurrency(row.costPerSetGbp, currency, gbpToCurrencyRate) : "—",
+    formatPdfCurrency(row.totalGbp, currency, gbpToCurrencyRate),
   ]);
   packagingBody.push([
     "Total",
     "",
     "",
-    units > 0 ? formatCurrency(totals.packagingCostPerSet ?? 0) : "—",
-    formatCurrency(totals.packagingTotalCost),
+    units > 0
+      ? formatPdfCurrency(totals.packagingCostPerSet ?? 0, currency, gbpToCurrencyRate)
+      : "—",
+    formatPdfCurrency(totals.packagingTotalCost, currency, gbpToCurrencyRate),
   ]);
 
   autoTable(doc, {
@@ -226,20 +246,35 @@ export async function generateRecipePdf(
 
   drawSummaryBlock("Material", [
     ["Total final CFU/g", formatCfu(totals.totalCfu)],
-    ["Total cost", formatCurrency(totals.formulaTotalCost)],
-    ["Cost per kg", formatCurrency(totals.formulaCostPerKg)],
-    ["Cost per set", totals.formulaCostPerSet != null ? formatCurrency(totals.formulaCostPerSet) : "—"],
+    ["Total cost", formatPdfCurrency(totals.formulaTotalCost, currency, gbpToCurrencyRate)],
+    ["Cost per kg", formatPdfCurrency(totals.formulaCostPerKg, currency, gbpToCurrencyRate)],
+    [
+      "Cost per set",
+      totals.formulaCostPerSet != null
+        ? formatPdfCurrency(totals.formulaCostPerSet, currency, gbpToCurrencyRate)
+        : "—",
+    ],
   ]);
 
   drawSummaryBlock("Service", [
-    ["Total cost", formatCurrency(totals.packagingTotalCost)],
-    ["Cost per set", totals.packagingCostPerSet != null ? formatCurrency(totals.packagingCostPerSet) : "—"],
+    ["Total cost", formatPdfCurrency(totals.packagingTotalCost, currency, gbpToCurrencyRate)],
+    [
+      "Cost per set",
+      totals.packagingCostPerSet != null
+        ? formatPdfCurrency(totals.packagingCostPerSet, currency, gbpToCurrencyRate)
+        : "—",
+    ],
   ]);
 
   drawSummaryBlock("Final Product", [
-    ["Total cost", formatCurrency(totals.finalTotalCost)],
-    ["Cost per kg", formatCurrency(totals.finalCostPerKg)],
-    ["Cost per set", totals.finalCostPerSet != null ? formatCurrency(totals.finalCostPerSet) : "—"],
+    ["Total cost", formatPdfCurrency(totals.finalTotalCost, currency, gbpToCurrencyRate)],
+    ["Cost per kg", formatPdfCurrency(totals.finalCostPerKg, currency, gbpToCurrencyRate)],
+    [
+      "Cost per set",
+      totals.finalCostPerSet != null
+        ? formatPdfCurrency(totals.finalCostPerSet, currency, gbpToCurrencyRate)
+        : "—",
+    ],
   ]);
 
   const fileName = `${poReference}-${recipeName.replace(/[^a-z0-9]/gi, "-")}-${batchGrams}g.pdf`;
@@ -275,6 +310,8 @@ export async function generateFinishedProductPdf(
     finalCostPerPack: number;
   },
   poReference: string,
+  currency: CurrencyCode,
+  gbpToCurrencyRate: number,
   selectedLabel?: SelectedLabelAsset
 ): Promise<void> {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm" });
@@ -301,16 +338,16 @@ export async function generateFinishedProductPdf(
   const packagingBody = packagingRows.map((row) => [
     row.item,
     String(Number(row.quantity.toFixed(2))),
-    formatCurrency(row.costGbp),
-    formatCurrency(row.costPerSetGbp),
-    formatCurrency(row.totalGbp),
+    formatPdfCurrency(row.costGbp, currency, gbpToCurrencyRate),
+    formatPdfCurrency(row.costPerSetGbp, currency, gbpToCurrencyRate),
+    formatPdfCurrency(row.totalGbp, currency, gbpToCurrencyRate),
   ]);
   packagingBody.push([
     "Total",
     "",
     "",
-    formatCurrency(totals.packagingCostPerUnit),
-    formatCurrency(totals.packagingTotalCost),
+    formatPdfCurrency(totals.packagingCostPerUnit, currency, gbpToCurrencyRate),
+    formatPdfCurrency(totals.packagingTotalCost, currency, gbpToCurrencyRate),
   ]);
 
   autoTable(doc, {
@@ -346,20 +383,20 @@ export async function generateFinishedProductPdf(
   };
 
   drawSummaryBlock("Product", [
-    ["Cost per pack", formatCurrency(totals.baseUnitCost)],
-    ["Product total cost", formatCurrency(totals.productTotalCost)],
+    ["Cost per pack", formatPdfCurrency(totals.baseUnitCost, currency, gbpToCurrencyRate)],
+    ["Product total cost", formatPdfCurrency(totals.productTotalCost, currency, gbpToCurrencyRate)],
   ]);
 
   drawSummaryBlock("Packaging", [
-    ["Total cost", formatCurrency(totals.packagingTotalCost)],
-    ["Cost per unit", formatCurrency(totals.packagingCostPerUnit)],
-    ["Cost per pack", formatCurrency(totals.packagingCostPerPack)],
+    ["Total cost", formatPdfCurrency(totals.packagingTotalCost, currency, gbpToCurrencyRate)],
+    ["Cost per unit", formatPdfCurrency(totals.packagingCostPerUnit, currency, gbpToCurrencyRate)],
+    ["Cost per pack", formatPdfCurrency(totals.packagingCostPerPack, currency, gbpToCurrencyRate)],
   ]);
 
   drawSummaryBlock("Final Product", [
-    ["Total cost", formatCurrency(totals.finalTotalCost)],
-    ["Cost per unit", formatCurrency(totals.finalCostPerUnit)],
-    ["Cost per pack", formatCurrency(totals.finalCostPerPack)],
+    ["Total cost", formatPdfCurrency(totals.finalTotalCost, currency, gbpToCurrencyRate)],
+    ["Cost per unit", formatPdfCurrency(totals.finalCostPerUnit, currency, gbpToCurrencyRate)],
+    ["Cost per pack", formatPdfCurrency(totals.finalCostPerPack, currency, gbpToCurrencyRate)],
   ]);
 
   const fileName = `${poReference}-${productName.replace(/[^a-z0-9]/gi, "-")}-${units}units.pdf`;

@@ -26,6 +26,11 @@ type Props = {
   packagingItems: PackagingItem[];
 };
 
+type LabelToDelete = {
+  id: number;
+  file_name: string;
+} | null;
+
 export default function FinishedProductCalculator({ product, packagingItems }: Props) {
   const { currency, rate: gbpToCurrencyRate } = useFx();
   const [packsInput, setPacksInput] = useState("1");
@@ -45,7 +50,7 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
   const [isLabelsModalOpen, setIsLabelsModalOpen] = useState(false);
   const [isUploadingLabel, setIsUploadingLabel] = useState(false);
   const [labelUploadError, setLabelUploadError] = useState<string | null>(null);
-  const [labelToDelete, setLabelToDelete] = useState<FinishedProductLabel | null>(null);
+  const [labelToDelete, setLabelToDelete] = useState<LabelToDelete>(null);
   const [isDeletingLabel, setIsDeletingLabel] = useState(false);
 
   const packs = Number(packsInput) > 0 ? Number(packsInput) : 0;
@@ -190,6 +195,8 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
           finalCostPerPack,
         },
         po.po_reference,
+        currency,
+        displayRate,
         selectedLabel != null
           ? {
               fileName: selectedLabel.file_name,
@@ -213,6 +220,8 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
     selectedLabel,
     totalUnits,
     unitsPerPack,
+    currency,
+    displayRate,
   ]);
 
   return (
@@ -323,7 +332,7 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
         onClose={() => setIsLabelsModalOpen(false)}
         onSelect={setSelectedLabelId}
         onUpload={handleUploadLabel}
-        onRequestDelete={setLabelToDelete}
+        onRequestDelete={(label) => setLabelToDelete(label)}
       />
 
       <DeleteLabelDialog
