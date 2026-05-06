@@ -3,6 +3,8 @@
 
 TRUNCATE TABLE recipe_lines RESTART IDENTITY CASCADE;
 TRUNCATE TABLE recipe_packaging_lines RESTART IDENTITY CASCADE;
+TRUNCATE TABLE finished_product_packaging_lines RESTART IDENTITY CASCADE;
+TRUNCATE TABLE finished_products RESTART IDENTITY CASCADE;
 TRUNCATE TABLE recipes RESTART IDENTITY CASCADE;
 TRUNCATE TABLE packaging_items CASCADE;
 TRUNCATE TABLE ingredients CASCADE;
@@ -53,7 +55,14 @@ INSERT INTO packaging_items (code, name, default_cost_gbp, default_cost_basis) V
   ('STP-ZIPLAB', 'ZipBag Label', 0.088, 'per_unit'),
   ('STP-LBOX', 'Large Box', 2.40, 'per_unit'),
   ('STP-BOXLAB', 'Box Label', 0.25, 'per_unit'),
-  ('STP-LEAF', 'Leaflet', 0.30, 'per_unit');
+  ('STP-LEAF', 'Leaflet', 0.30, 'per_unit'),
+  ('PIL-20TABS', 'Screwtop PET Pill pot', 0.83, 'per_unit'),
+  ('CART-6TUB', '0427 150 x 100 x 100mm 150w/t/b Box for 6 Tubes', 0.12, 'per_unit'),
+  ('CART-8X6 /48TUB', 'O201 125k/t/dw Outer to fit 8 of box size 150 x 100 x 100mm', 0.03, 'per_unit'),
+  ('XRO-L7166/6/A4', 'Label 6x20 (one sheet 6 Label) 1 label for 6 tubs', 0.08, 'per_unit'),
+  ('XRO-L7168/2/A4', 'Label 48x20 (one sheet 2 Label ) 1 Label for 48 outerbox', 0.03, 'per_unit'),
+  ('PIL-WRAP', 'Label Printer wrap', 0.24, 'per_unit'),
+  ('FILL', 'Manual filling cost', 0.42, 'per_unit');
 
 WITH recipe_ref AS (
   SELECT id AS recipe_id
@@ -128,6 +137,56 @@ JOIN (
     ('TT-ALUPB1000'::text, 5, 'per_kg'::text, 0.10::numeric, 1::numeric, NULL::numeric, 'kg'::text),
     ('TT-OUTBOX'::text, 6, 'per_unit'::text, 4.08::numeric, 1::numeric, 8::numeric, 'sets'::text)
 ) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack, quantity_source)
+  ON TRUE;
+
+INSERT INTO finished_products (
+  name,
+  sku,
+  default_units_per_pack,
+  base_unit_cost_gbp,
+  notes
+)
+VALUES (
+  'Gaia Tabs 20 units 71g',
+  'GAO014',
+  20,
+  1.34,
+  NULL
+);
+
+WITH product_ref AS (
+  SELECT id AS finished_product_id
+  FROM finished_products
+  WHERE sku = 'GAO014'
+)
+INSERT INTO finished_product_packaging_lines (
+  finished_product_id,
+  packaging_item_code,
+  sort_order,
+  usage_basis,
+  cost_gbp,
+  quantity_multiplier,
+  units_per_pack
+)
+SELECT
+  product_ref.finished_product_id,
+  v.packaging_item_code,
+  v.sort_order,
+  v.usage_basis,
+  v.cost_gbp,
+  v.quantity_multiplier,
+  v.units_per_pack
+FROM product_ref
+JOIN (
+  VALUES
+    ('PIL-20TABS'::text, 1, 'per_pack'::text, 0.83::numeric, 1::numeric, NULL::numeric),
+    ('CART-6TUB'::text, 2, 'per_pack'::text, 0.12::numeric, 1::numeric, NULL::numeric),
+    ('CART-8X6 /48TUB'::text, 3, 'per_pack'::text, 0.03::numeric, 1::numeric, NULL::numeric),
+    ('XRO-L7166/6/A4'::text, 4, 'per_pack'::text, 0.08::numeric, 1::numeric, NULL::numeric),
+    ('XRO-L7168/2/A4'::text, 5, 'per_pack'::text, 0.03::numeric, 1::numeric, NULL::numeric),
+    ('PIL-WRAP'::text, 6, 'per_pack'::text, 0.24::numeric, 1::numeric, NULL::numeric),
+    ('FILL'::text, 7, 'per_pack'::text, 0.42::numeric, 1::numeric, NULL::numeric)
+) AS v(packaging_item_code, sort_order, usage_basis, cost_gbp, quantity_multiplier, units_per_pack)
   ON TRUE;
 
 INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
