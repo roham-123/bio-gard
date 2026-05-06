@@ -3,8 +3,10 @@
 import { Fragment, useCallback, useState } from "react";
 import type { PurchaseOrder } from "@/lib/db";
 import { getPurchaseOrdersAction } from "@/app/actions";
-import { formatCurrency, formatKg, formatNumber } from "@/lib/format";
+import { formatCurrency, formatDate, formatKg, formatNumber, formatTime } from "@/lib/format";
 import { useFx } from "@/app/FxProvider";
+import PageShell from "@/components/layout/PageShell";
+import { useDateRange, type DateRangePreset } from "@/lib/hooks/useDateRange";
 
 type Props = {
   initialOrders: PurchaseOrder[];
@@ -18,77 +20,15 @@ export default function PoHistoryPage({ initialOrders }: Props) {
   );
   const [orders, setOrders] = useState<PurchaseOrder[]>(initialOrders);
   const [search, setSearch] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const { fromDate, toDate, setFromDate, setToDate, reset: resetDates, applyPreset } = useDateRange();
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const runFilter = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await getPurchaseOrdersAction({
-        search: search.trim() || undefined,
-        from: fromDate || undefined,
-        to: toDate || undefined,
-      });
-      setOrders(result);
-    } catch (err) {
-      console.error("Failed to fetch PO history:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [search, fromDate, toDate]);
-
-  const clearFilters = useCallback(async () => {
-    setSearch("");
-    setFromDate("");
-    setToDate("");
-    setLoading(true);
-    try {
-      const result = await getPurchaseOrdersAction();
-      setOrders(result);
-    } catch (err) {
-      console.error("Failed to fetch PO history:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const toIsoDate = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  };
-
-  const applyShortcut = useCallback(
-    async (preset: "last_month" | "last_30_days") => {
-      const now = new Date();
-      let from = "";
-      let to = "";
-
-      if (preset === "last_month") {
-        const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const lastMonthFirst = new Date(firstOfThisMonth.getFullYear(), firstOfThisMonth.getMonth() - 1, 1);
-        const lastMonthLast = new Date(firstOfThisMonth.getTime() - 24 * 60 * 60 * 1000);
-        from = toIsoDate(lastMonthFirst);
-        to = toIsoDate(lastMonthLast);
-      } else if (preset === "last_30_days") {
-        const start = new Date(now);
-        start.setDate(start.getDate() - 29);
-        from = toIsoDate(start);
-        to = toIsoDate(now);
-      }
-
-      setFromDate(from);
-      setToDate(to);
+  const fetchOrders = useCallback(
+    async (params: { search?: string; from?: string; to?: string }) => {
       setLoading(true);
       try {
-        const result = await getPurchaseOrdersAction({
-          search: search.trim() || undefined,
-          from: from || undefined,
-          to: to || undefined,
-        });
+        const result = await getPurchaseOrdersAction(params);
         setOrders(result);
       } catch (err) {
         console.error("Failed to fetch PO history:", err);
@@ -96,7 +36,35 @@ export default function PoHistoryPage({ initialOrders }: Props) {
         setLoading(false);
       }
     },
-    [search]
+    []
+  );
+
+  const runFilter = useCallback(
+    () =>
+      fetchOrders({
+        search: search.trim() || undefined,
+        from: fromDate || undefined,
+        to: toDate || undefined,
+      }),
+    [fetchOrders, search, fromDate, toDate]
+  );
+
+  const clearFilters = useCallback(() => {
+    setSearch("");
+    resetDates();
+    return fetchOrders({});
+  }, [fetchOrders, resetDates]);
+
+  const applyShortcut = useCallback(
+    (preset: DateRangePreset) => {
+      const { from, to } = applyPreset(preset);
+      return fetchOrders({
+        search: search.trim() || undefined,
+        from: from || undefined,
+        to: to || undefined,
+      });
+    },
+    [applyPreset, fetchOrders, search]
   );
 
   const totalVisibleCost = orders.reduce((sum, po) => {
@@ -104,20 +72,6 @@ export default function PoHistoryPage({ initialOrders }: Props) {
     const finalTotalCost = typeof detail.finalTotalCost === "number" ? detail.finalTotalCost : null;
     return sum + (finalTotalCost ?? 0);
   }, 0);
-
-  const formatDate = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
-
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  };
 
   const toggleExpand = (id: number) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -139,12 +93,11 @@ export default function PoHistoryPage({ initialOrders }: Props) {
   };
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6 lg:px-8">
-      <div className="rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 sm:p-8">
-        <header className="border-b border-zinc-200 pb-6 dark:border-zinc-600">
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
-            Purchase Order History
-          </h1>
+    <PageShell>
+      <header className="border-b border-zinc-200 pb-6 dark:border-zinc-600">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
+          Purchase Order History
+        </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             Browse and search all previously generated purchase orders.
           </p>
@@ -401,7 +354,6 @@ export default function PoHistoryPage({ initialOrders }: Props) {
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

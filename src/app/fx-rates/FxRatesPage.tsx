@@ -3,6 +3,21 @@
 import { useEffect, useState } from "react";
 import type { CurrencyCode } from "@/lib/format";
 import { CURRENCIES, useFx } from "../FxProvider";
+import PageShell from "@/components/layout/PageShell";
+
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "previously";
+  const ts = new Date(iso).getTime();
+  if (Number.isNaN(ts)) return "previously";
+  const diffMs = Date.now() - ts;
+  const minutes = Math.round(diffMs / 60000);
+  if (minutes < 1) return "moments ago";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 export default function FxRatesPage() {
   const {
@@ -14,14 +29,15 @@ export default function FxRatesPage() {
     liveRatesUpdatedAt,
     liveStatus,
     liveError,
+    liveStale,
+    liveFetchedAt,
   } = useFx();
 
   const isLive = mode === "live";
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 sm:p-8">
-        <header className="border-b border-zinc-200 pb-6 dark:border-zinc-600">
+    <PageShell width="narrow">
+      <header className="border-b border-zinc-200 pb-6 dark:border-zinc-600">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
             FX Rates
           </h1>
@@ -81,9 +97,16 @@ export default function FxRatesPage() {
                   Refreshing live rates...
                 </p>
               )}
+              {liveStatus === "ready" && liveStale && (
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                  Live API unreachable. Showing the last confirmed rates from{" "}
+                  {formatRelativeTime(liveFetchedAt)}.
+                  {liveError ? ` (${liveError})` : ""}
+                </p>
+              )}
               {liveStatus === "error" && (
                 <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
-                  Live API unavailable. Showing cached/default rates.
+                  Live API unavailable and no cached rates yet. Showing bootstrap defaults.
                   {liveError ? ` (${liveError})` : ""}
                 </p>
               )}
@@ -96,8 +119,7 @@ export default function FxRatesPage() {
             </p>
           )}
         </section>
-      </div>
-    </div>
+    </PageShell>
   );
 }
 

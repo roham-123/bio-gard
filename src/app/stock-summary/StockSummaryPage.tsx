@@ -4,6 +4,8 @@ import { useCallback, useState } from "react";
 import type { StockSummary } from "@/lib/db";
 import { getStockSummaryAction } from "@/app/actions";
 import { formatGrams, formatKg, formatNumber } from "@/lib/format";
+import PageShell from "@/components/layout/PageShell";
+import { useDateRange, type DateRangePreset } from "@/lib/hooks/useDateRange";
 
 type Props = {
   initialSummary: StockSummary;
@@ -11,31 +13,13 @@ type Props = {
 
 export default function StockSummaryPage({ initialSummary }: Props) {
   const [summary, setSummary] = useState<StockSummary>(initialSummary);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const { fromDate, toDate, setFromDate, setToDate, reset: resetDates, applyPreset } = useDateRange();
   const [loading, setLoading] = useState(false);
 
-  const runFilter = useCallback(async () => {
+  const fetchSummary = useCallback(async (params: { from?: string; to?: string }) => {
     setLoading(true);
     try {
-      const result = await getStockSummaryAction({
-        from: fromDate || undefined,
-        to: toDate || undefined,
-      });
-      setSummary(result);
-    } catch (err) {
-      console.error("Failed to fetch stock summary:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [fromDate, toDate]);
-
-  const clearFilters = useCallback(async () => {
-    setFromDate("");
-    setToDate("");
-    setLoading(true);
-    try {
-      const result = await getStockSummaryAction();
+      const result = await getStockSummaryAction(params);
       setSummary(result);
     } catch (err) {
       console.error("Failed to fetch stock summary:", err);
@@ -44,48 +28,22 @@ export default function StockSummaryPage({ initialSummary }: Props) {
     }
   }, []);
 
-  const toIsoDate = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  };
+  const runFilter = useCallback(
+    () => fetchSummary({ from: fromDate || undefined, to: toDate || undefined }),
+    [fetchSummary, fromDate, toDate]
+  );
+
+  const clearFilters = useCallback(() => {
+    resetDates();
+    return fetchSummary({});
+  }, [fetchSummary, resetDates]);
 
   const applyShortcut = useCallback(
-    async (preset: "last_month" | "last_30_days") => {
-      const now = new Date();
-      let from = "";
-      let to = "";
-
-      if (preset === "last_month") {
-        const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const lastMonthFirst = new Date(firstOfThisMonth.getFullYear(), firstOfThisMonth.getMonth() - 1, 1);
-        const lastMonthLast = new Date(firstOfThisMonth.getTime() - 24 * 60 * 60 * 1000);
-        from = toIsoDate(lastMonthFirst);
-        to = toIsoDate(lastMonthLast);
-      } else if (preset === "last_30_days") {
-        const start = new Date(now);
-        start.setDate(start.getDate() - 29);
-        from = toIsoDate(start);
-        to = toIsoDate(now);
-      }
-
-      setFromDate(from);
-      setToDate(to);
-      setLoading(true);
-      try {
-        const result = await getStockSummaryAction({
-          from: from || undefined,
-          to: to || undefined,
-        });
-        setSummary(result);
-      } catch (err) {
-        console.error("Failed to fetch stock summary:", err);
-      } finally {
-        setLoading(false);
-      }
+    (preset: DateRangePreset) => {
+      const { from, to } = applyPreset(preset);
+      return fetchSummary({ from: from || undefined, to: to || undefined });
     },
-    []
+    [applyPreset, fetchSummary]
   );
 
   const rangeLabel = (() => {
@@ -96,12 +54,11 @@ export default function StockSummaryPage({ initialSummary }: Props) {
   })();
 
   return (
-    <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6 lg:px-8">
-      <div className="rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 sm:p-8">
-        <header className="border-b border-zinc-200 pb-6 dark:border-zinc-600">
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
-            Stock Summary
-          </h1>
+    <PageShell>
+      <header className="border-b border-zinc-200 pb-6 dark:border-zinc-600">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
+          Stock Summary
+        </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             Aggregated ingredient and packaging usage across purchase orders in the chosen date range.
           </p>
@@ -372,7 +329,6 @@ export default function StockSummaryPage({ initialSummary }: Props) {
             </div>
           </>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

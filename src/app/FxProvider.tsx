@@ -11,17 +11,19 @@ import {
 } from "react";
 import type { CurrencyCode } from "@/lib/format";
 import { getFxSettingsAction, updateFxSettingsAction } from "@/app/actions";
+import { BOOTSTRAP_FX_RATES } from "@/lib/fx";
+
+type FxRatesResponse = {
+  rates: { EUR: number; PLN: number; USD: number };
+  date: string;
+  stale: boolean;
+  fetchedAt: string | null;
+  error: string | null;
+};
 
 export type FxMode = "live" | "fixed";
 
 export const CURRENCIES: CurrencyCode[] = ["GBP", "EUR", "PLN", "USD"];
-
-const DEFAULT_RATES: Record<CurrencyCode, number> = {
-  GBP: 1,
-  EUR: 1.17,
-  PLN: 5.05,
-  USD: 1.27,
-};
 
 const CURRENCY_STORAGE_KEY = "biogard:fx-currency";
 const LIVE_CACHE_KEY = "biogard:fx-live-cache";
@@ -46,6 +48,10 @@ type FxContextValue = {
   liveRatesUpdatedAt: string;
   liveStatus: "loading" | "ready" | "error";
   liveError: string | null;
+  /** True when the rates currently in `liveRates` came from the DB cache after an upstream failure. */
+  liveStale: boolean;
+  /** ISO timestamp of the last successful upstream fetch (only when liveStale is true). */
+  liveFetchedAt: string | null;
   refreshLiveRates: () => Promise<void>;
   activeRates: Record<CurrencyCode, number>;
   rate: number;
@@ -72,11 +78,13 @@ function sanitizeRates(
 export function FxProvider({ children }: { children: ReactNode }) {
   const [currency, setCurrencyState] = useState<CurrencyCode>("GBP");
   const [mode, setModeState] = useState<FxMode>("live");
-  const [liveRates, setLiveRates] = useState<Record<CurrencyCode, number>>(DEFAULT_RATES);
-  const [fixedRates, setFixedRates] = useState<Record<CurrencyCode, number>>(DEFAULT_RATES);
+  const [liveRates, setLiveRates] = useState<Record<CurrencyCode, number>>(BOOTSTRAP_FX_RATES);
+  const [fixedRates, setFixedRates] = useState<Record<CurrencyCode, number>>(BOOTSTRAP_FX_RATES);
   const [liveRatesUpdatedAt, setLiveRatesUpdatedAt] = useState<string>("");
   const [liveStatus, setLiveStatus] = useState<"loading" | "ready" | "error">("loading");
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [liveStale, setLiveStale] = useState(false);
+  const [liveFetchedAt, setLiveFetchedAt] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [fxSettingsLoaded, setFxSettingsLoaded] = useState(false);
 
@@ -93,7 +101,7 @@ export function FxProvider({ children }: { children: ReactNode }) {
       if (liveRaw) {
         const parsedLive = JSON.parse(liveRaw) as LiveCache;
         if (parsedLive.liveRates) {
-          setLiveRates(sanitizeRates(parsedLive.liveRates, DEFAULT_RATES));
+          setLiveRates(sanitizeRates(parsedLive.liveRates, BOOTSTRAP_FX_RATES));
         }
         if (typeof parsedLive.liveRatesUpdatedAt === "string") {
           setLiveRatesUpdatedAt(parsedLive.liveRatesUpdatedAt);
@@ -130,7 +138,7 @@ export function FxProvider({ children }: { children: ReactNode }) {
               PLN: settings.fixedRates.PLN,
               USD: settings.fixedRates.USD,
             },
-            DEFAULT_RATES
+            BOOTSTRAP_FX_RATES
           )
         );
       } catch {
@@ -161,56 +169,59 @@ export function FxProvider({ children }: { children: ReactNode }) {
     void persistFxSettings();
   }, [fxSettingsLoaded, mode, fixedRates]);
 
-  const refreshLiveRates = useCallback(async (showLoading = true) => {
-    if (showLoading) setLiveStatus("loading");
-    setLiveError(null);
-    try {
-      const res = await fetch("/api/fx-rates", {
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        let detail = "";
-        try {
-          const body = (await res.json()) as { error?: string };
-          detail = body.error ? `: ${body.error}` : "";
-        } catch {
-          // ignore parsing error
+  const refreshLiveRates = useCallback(
+    async (showLoading = true) => {
+      if (showLoading) setLiveStatus("loading");
+      setLiveError(null);
+      try {
+        const res = await fetch("/api/fx-rates", { cache: "no-store" });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const body = (await res.json()) as { error?: string };
+            detail = body.error ? `: ${body.error}` : "";
+          } catch {
+            // ignore parsing error
+          }
+          throw new Error(`FX API returned ${res.status}${detail}`);
         }
-        throw new Error(`FX API returned ${res.status}${detail}`);
-      }
-      const data = (await res.json()) as {
-        date?: string;
-        rates?: { EUR?: number; PLN?: number; USD?: number };
-      };
-      if (!data.rates) {
-        throw new Error("FX API response missing rates");
-      }
-      const incomingRates: Partial<Record<CurrencyCode, number>> = {
-        GBP: 1,
-        EUR: data.rates.EUR,
-        PLN: data.rates.PLN,
-        USD: data.rates.USD,
-      };
-      let nextRates = DEFAULT_RATES;
-      setLiveRates((prev) => {
-        nextRates = sanitizeRates(incomingRates, prev);
-        return nextRates;
-      });
-      const nextUpdatedAt = data.date ?? "";
-      setLiveRatesUpdatedAt(nextUpdatedAt);
-      setLiveStatus("ready");
-      if (hydrated) {
-        const payload: LiveCache = {
-          liveRates: nextRates,
-          liveRatesUpdatedAt: nextUpdatedAt,
+        const data = (await res.json()) as FxRatesResponse;
+        const incomingRates: Partial<Record<CurrencyCode, number>> = {
+          GBP: 1,
+          EUR: data.rates.EUR,
+          PLN: data.rates.PLN,
+          USD: data.rates.USD,
         };
-        localStorage.setItem(LIVE_CACHE_KEY, JSON.stringify(payload));
+        let nextRates = BOOTSTRAP_FX_RATES;
+        setLiveRates((prev) => {
+          nextRates = sanitizeRates(incomingRates, prev);
+          return nextRates;
+        });
+        const nextUpdatedAt = data.date ?? "";
+        setLiveRatesUpdatedAt(nextUpdatedAt);
+        setLiveStale(data.stale);
+        setLiveFetchedAt(data.fetchedAt);
+        setLiveError(data.stale ? data.error : null);
+        setLiveStatus("ready");
+        if (hydrated) {
+          // Only persist confirmed-fresh rates to localStorage so the next
+          // boot doesn't re-hydrate stale numbers.
+          if (!data.stale) {
+            const payload: LiveCache = {
+              liveRates: nextRates,
+              liveRatesUpdatedAt: nextUpdatedAt,
+            };
+            localStorage.setItem(LIVE_CACHE_KEY, JSON.stringify(payload));
+          }
+        }
+      } catch (err) {
+        setLiveStatus("error");
+        setLiveStale(false);
+        setLiveError(err instanceof Error ? err.message : "Failed to fetch live rates.");
       }
-    } catch (err) {
-      setLiveStatus("error");
-      setLiveError(err instanceof Error ? err.message : "Failed to fetch live rates.");
-    }
-  }, [hydrated]);
+    },
+    [hydrated]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -251,6 +262,8 @@ export function FxProvider({ children }: { children: ReactNode }) {
       liveRatesUpdatedAt,
       liveStatus,
       liveError,
+      liveStale,
+      liveFetchedAt,
       refreshLiveRates,
       activeRates,
       rate,
@@ -266,6 +279,8 @@ export function FxProvider({ children }: { children: ReactNode }) {
       liveRatesUpdatedAt,
       liveStatus,
       liveError,
+      liveStale,
+      liveFetchedAt,
       refreshLiveRates,
       activeRates,
       rate,

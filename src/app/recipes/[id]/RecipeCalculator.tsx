@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import type { RecipeWithLines, PackagingItem, RecipeLabel } from "@/lib/db";
+import type { RecipeWithLines, PackagingItem } from "@/lib/db";
 import {
   calculate,
   recipeToLineInputs,
   type LineInput,
   type LineResult,
 } from "@/lib/calc";
-import { formatCurrency, parseScientific } from "@/lib/format";
+import { formatCurrency, parseNumberInput } from "@/lib/format";
 import { calculateRecipePackaging } from "@/lib/packaging";
 import { generateRecipePdf } from "@/lib/pdf";
 import {
@@ -18,6 +18,7 @@ import {
   uploadRecipeLabelAction,
 } from "@/app/actions";
 import { useFx } from "@/app/FxProvider";
+import { useEntityLabels } from "@/lib/hooks/useEntityLabels";
 import BatchToolbar from "./components/BatchToolbar";
 import FormulaTable from "./components/FormulaTable";
 import FormulaSummary from "./components/FormulaSummary";
@@ -34,11 +35,6 @@ type Props = {
   recipe: RecipeWithLines;
   packagingItems?: PackagingItem[];
 };
-
-type LabelToDelete = {
-  id: number;
-  file_name: string;
-} | null;
 
 export default function RecipeCalculator({
   recipe,
@@ -66,18 +62,33 @@ export default function RecipeCalculator({
   const [isSavingPackaging, setIsSavingPackaging] = useState(false);
   const [masterItems, setMasterItems] = useState<PackagingItem[]>(initialPackagingItems);
 
-  const [labels, setLabels] = useState<RecipeLabel[]>(recipe.labels ?? []);
-  const [selectedLabelId, setSelectedLabelId] = useState<number | null>(null);
-  const [isLabelsModalOpen, setIsLabelsModalOpen] = useState(false);
-  const [isUploadingLabel, setIsUploadingLabel] = useState(false);
-  const [labelUploadError, setLabelUploadError] = useState<string | null>(null);
-  const [labelToDelete, setLabelToDelete] = useState<LabelToDelete>(null);
-  const [isDeletingLabel, setIsDeletingLabel] = useState(false);
+  const labelsApi = useEntityLabels({
+    initial: recipe.labels ?? [],
+    upload: useCallback((file: File) => uploadRecipeLabelAction(recipe.id, file), [recipe.id]),
+    remove: useCallback((labelId: number) => deleteRecipeLabelAction(labelId), []),
+  });
+  const {
+    labels,
+    selectedLabel,
+    selectedLabelId,
+    setSelectedLabelId,
+    isLabelsModalOpen,
+    openModal: openLabelsModal,
+    closeModal: closeLabelsModal,
+    isUploadingLabel,
+    labelUploadError,
+    handleUpload: handleUploadLabel,
+    labelToDelete,
+    setLabelToDelete,
+    cancelDelete: cancelDeleteLabel,
+    isDeletingLabel,
+    handleConfirmDelete: handleConfirmDeleteLabel,
+  } = labelsApi;
 
   const [isGeneratingPo, setIsGeneratingPo] = useState(false);
 
   const syncBatchFromInput = useCallback(() => {
-    const parsedKg = parseScientific(batchInput);
+    const parsedKg = parseNumberInput(batchInput);
     if (!Number.isNaN(parsedKg) && parsedKg > 0) {
       const grams = parsedKg * 1000;
       setBatchGrams(grams);
@@ -86,7 +97,7 @@ export default function RecipeCalculator({
   }, [batchInput]);
 
   const syncKgPerUnitFromInput = useCallback(() => {
-    const parsed = parseScientific(kgPerUnitInput);
+    const parsed = parseNumberInput(kgPerUnitInput);
     if (!Number.isNaN(parsed) && parsed > 0) {
       setKgPerUnit(parsed);
       setKgPerUnitInput(String(parsed));
@@ -146,11 +157,6 @@ export default function RecipeCalculator({
     [toDisplayCurrency, currency]
   );
 
-  const selectedLabel = useMemo(
-    () => labels.find((label) => label.id === selectedLabelId) ?? null,
-    [labels, selectedLabelId]
-  );
-
   const handleEnterEditPackaging = useCallback(() => {
     setPackagingSnapshot(packagingLines.map((line) => ({ ...line })));
     setIsEditingPackaging(true);
@@ -194,40 +200,6 @@ export default function RecipeCalculator({
       setIsSavingPackaging(false);
     }
   }, [recipe.id, packagingLines]);
-
-  const handleUploadLabel = useCallback(
-    async (file: File) => {
-      setIsUploadingLabel(true);
-      setLabelUploadError(null);
-      try {
-        const created = await uploadRecipeLabelAction(recipe.id, file);
-        setLabels((prev) => [created, ...prev]);
-      } catch (err) {
-        setLabelUploadError(err instanceof Error ? err.message : "Upload failed.");
-      } finally {
-        setIsUploadingLabel(false);
-      }
-    },
-    [recipe.id]
-  );
-
-  const handleConfirmDeleteLabel = useCallback(async () => {
-    if (!labelToDelete) return;
-    setIsDeletingLabel(true);
-    setLabelUploadError(null);
-    try {
-      await deleteRecipeLabelAction(labelToDelete.id);
-      setLabels((prev) => prev.filter((label) => label.id !== labelToDelete.id));
-      if (selectedLabelId === labelToDelete.id) {
-        setSelectedLabelId(null);
-      }
-      setLabelToDelete(null);
-    } catch (err) {
-      setLabelUploadError(err instanceof Error ? err.message : "Delete failed.");
-    } finally {
-      setIsDeletingLabel(false);
-    }
-  }, [labelToDelete, selectedLabelId]);
 
   const handleGeneratePurchaseOrder = useCallback(async () => {
     setIsGeneratingPo(true);
@@ -382,7 +354,7 @@ export default function RecipeCalculator({
         costPerKg={result.costPerKg}
         units={units}
         selectedLabel={selectedLabel}
-        onOpenLabels={() => setIsLabelsModalOpen(true)}
+        onOpenLabels={openLabelsModal}
         onGeneratePurchaseOrder={handleGeneratePurchaseOrder}
         isGeneratingPo={isGeneratingPo}
         formatDisplayCurrency={formatDisplayCurrency}
@@ -394,16 +366,16 @@ export default function RecipeCalculator({
         selectedLabelId={selectedLabelId}
         isUploading={isUploadingLabel}
         uploadError={labelUploadError}
-        onClose={() => setIsLabelsModalOpen(false)}
+        onClose={closeLabelsModal}
         onSelect={setSelectedLabelId}
         onUpload={handleUploadLabel}
-        onRequestDelete={(label) => setLabelToDelete(label)}
+        onRequestDelete={setLabelToDelete}
       />
 
       <DeleteLabelDialog
         label={labelToDelete}
         isDeleting={isDeletingLabel}
-        onCancel={() => setLabelToDelete(null)}
+        onCancel={cancelDeleteLabel}
         onConfirm={handleConfirmDeleteLabel}
       />
 

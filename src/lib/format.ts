@@ -1,11 +1,14 @@
 /**
- * Parse numeric input that may be in scientific notation (e.g. 1.00e11, 2.5E-3).
+ * Parse a user-entered number string. Returns NaN for empty or non-numeric input.
+ *
+ * `Number()` already handles scientific notation natively (e.g. "1.00e11",
+ * "2.5E-3"), so this is just a trimmed wrapper. Callers should `Number.isNaN`
+ * check the result.
  */
-export function parseScientific(value: string): number {
+export function parseNumberInput(value: string): number {
   const s = value.trim();
   if (s === "") return NaN;
-  const n = Number(s);
-  return n;
+  return Number(s);
 }
 
 /**
@@ -26,11 +29,10 @@ export function formatNumber(
   options?: { maxDecimals?: number; forceScientific?: boolean }
 ): string {
   const n = toNum(value);
-  if (n !== n) return ""; // NaN
+  if (Number.isNaN(n)) return "";
   const { maxDecimals = 4, forceScientific = false } = options ?? {};
   const abs = Math.abs(n);
-  const useScientific =
-    forceScientific || abs >= 1e6 || (abs > 0 && abs < 1e-4);
+  const useScientific = forceScientific || abs >= 1e6 || (abs > 0 && abs < 1e-4);
   if (useScientific) {
     const exp = n.toExponential(maxDecimals);
     return exp.replace(/e([+-])(\d+)/i, "E$1$2");
@@ -66,4 +68,18 @@ export function formatCurrency(value: unknown, currency: CurrencyCode = "GBP"): 
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n);
+}
+
+/** Format an ISO timestamp as `dd MMM yyyy` in en-GB locale. */
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** Format an ISO timestamp as `HH:mm` in en-GB locale. */
+export function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }

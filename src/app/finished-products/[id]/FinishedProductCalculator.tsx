@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
-import type { FinishedProductLabel, FinishedProductWithPackagingLines, PackagingItem } from "@/lib/db";
+import type { FinishedProductWithPackagingLines, PackagingItem } from "@/lib/db";
 import {
   createFinishedProductPurchaseOrderAction,
   deleteFinishedProductLabelAction,
@@ -13,6 +13,7 @@ import { useFx } from "@/app/FxProvider";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { calculateFinishedProductPackaging } from "@/lib/packaging";
 import { generateFinishedProductPdf } from "@/lib/pdf";
+import { useEntityLabels } from "@/lib/hooks/useEntityLabels";
 import FinishedProductPackagingSection from "@/components/packaging/FinishedProductPackagingSection";
 import LabelsModal from "@/components/labels/LabelsModal";
 import DeleteLabelDialog from "@/components/labels/DeleteLabelDialog";
@@ -25,11 +26,6 @@ type Props = {
   product: FinishedProductWithPackagingLines;
   packagingItems: PackagingItem[];
 };
-
-type LabelToDelete = {
-  id: number;
-  file_name: string;
-} | null;
 
 export default function FinishedProductCalculator({ product, packagingItems }: Props) {
   const { currency, rate: gbpToCurrencyRate } = useFx();
@@ -45,13 +41,31 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
   const [isSavingPackaging, setIsSavingPackaging] = useState(false);
   const [masterItems, setMasterItems] = useState<PackagingItem[]>(packagingItems);
   const [isGeneratingPo, setIsGeneratingPo] = useState(false);
-  const [labels, setLabels] = useState<FinishedProductLabel[]>(product.labels ?? []);
-  const [selectedLabelId, setSelectedLabelId] = useState<number | null>(null);
-  const [isLabelsModalOpen, setIsLabelsModalOpen] = useState(false);
-  const [isUploadingLabel, setIsUploadingLabel] = useState(false);
-  const [labelUploadError, setLabelUploadError] = useState<string | null>(null);
-  const [labelToDelete, setLabelToDelete] = useState<LabelToDelete>(null);
-  const [isDeletingLabel, setIsDeletingLabel] = useState(false);
+
+  const {
+    labels,
+    selectedLabel,
+    selectedLabelId,
+    setSelectedLabelId,
+    isLabelsModalOpen,
+    openModal: openLabelsModal,
+    closeModal: closeLabelsModal,
+    isUploadingLabel,
+    labelUploadError,
+    handleUpload: handleUploadLabel,
+    labelToDelete,
+    setLabelToDelete,
+    cancelDelete: cancelDeleteLabel,
+    isDeletingLabel,
+    handleConfirmDelete: handleConfirmDeleteLabel,
+  } = useEntityLabels({
+    initial: product.labels ?? [],
+    upload: useCallback(
+      (file: File) => uploadFinishedProductLabelAction(product.id, file),
+      [product.id]
+    ),
+    remove: useCallback((labelId: number) => deleteFinishedProductLabelAction(labelId), []),
+  });
 
   const packs = Number(packsInput) > 0 ? Number(packsInput) : 0;
   const unitsPerPack = Number(unitsPerPackInput) > 0 ? Number(unitsPerPackInput) : 1;
@@ -75,11 +89,6 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
     (gbp: number) => formatCurrency(toDisplayCurrency(gbp), currency),
     [currency, toDisplayCurrency]
   );
-  const selectedLabel = useMemo(
-    () => labels.find((label) => label.id === selectedLabelId) ?? null,
-    [labels, selectedLabelId]
-  );
-
   const handleSavePackaging = useCallback(async () => {
     setIsSavingPackaging(true);
     try {
@@ -100,40 +109,6 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
       setIsSavingPackaging(false);
     }
   }, [packagingLines, product.id]);
-
-  const handleUploadLabel = useCallback(
-    async (file: File) => {
-      setIsUploadingLabel(true);
-      setLabelUploadError(null);
-      try {
-        const created = await uploadFinishedProductLabelAction(product.id, file);
-        setLabels((prev) => [created, ...prev]);
-      } catch (err) {
-        setLabelUploadError(err instanceof Error ? err.message : "Upload failed.");
-      } finally {
-        setIsUploadingLabel(false);
-      }
-    },
-    [product.id]
-  );
-
-  const handleConfirmDeleteLabel = useCallback(async () => {
-    if (!labelToDelete) return;
-    setIsDeletingLabel(true);
-    setLabelUploadError(null);
-    try {
-      await deleteFinishedProductLabelAction(labelToDelete.id);
-      setLabels((prev) => prev.filter((label) => label.id !== labelToDelete.id));
-      if (selectedLabelId === labelToDelete.id) {
-        setSelectedLabelId(null);
-      }
-      setLabelToDelete(null);
-    } catch (err) {
-      setLabelUploadError(err instanceof Error ? err.message : "Delete failed.");
-    } finally {
-      setIsDeletingLabel(false);
-    }
-  }, [labelToDelete, selectedLabelId]);
 
   const handleGeneratePurchaseOrder = useCallback(async () => {
     setIsGeneratingPo(true);
@@ -303,7 +278,7 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => setIsLabelsModalOpen(true)}
+              onClick={openLabelsModal}
               className="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600 dark:focus:ring-offset-zinc-800"
             >
               Labels
@@ -329,16 +304,16 @@ export default function FinishedProductCalculator({ product, packagingItems }: P
         selectedLabelId={selectedLabelId}
         isUploading={isUploadingLabel}
         uploadError={labelUploadError}
-        onClose={() => setIsLabelsModalOpen(false)}
+        onClose={closeLabelsModal}
         onSelect={setSelectedLabelId}
         onUpload={handleUploadLabel}
-        onRequestDelete={(label) => setLabelToDelete(label)}
+        onRequestDelete={setLabelToDelete}
       />
 
       <DeleteLabelDialog
         label={labelToDelete}
         isDeleting={isDeletingLabel}
-        onCancel={() => setLabelToDelete(null)}
+        onCancel={cancelDeleteLabel}
         onConfirm={handleConfirmDeleteLabel}
       />
 

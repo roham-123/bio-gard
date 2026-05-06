@@ -94,12 +94,19 @@ CREATE INDEX IF NOT EXISTS idx_recipe_labels_recipe ON recipe_labels(recipe_id);
 
 -- app-level FX settings (single row)
 CREATE TABLE IF NOT EXISTS fx_settings (
-  id                INT PRIMARY KEY CHECK (id = 1),
-  mode              TEXT NOT NULL CHECK (mode IN ('live', 'fixed')) DEFAULT 'live',
-  fixed_rate_eur    NUMERIC NOT NULL DEFAULT 1.17 CHECK (fixed_rate_eur > 0),
-  fixed_rate_pln    NUMERIC NOT NULL DEFAULT 5.05 CHECK (fixed_rate_pln > 0),
-  fixed_rate_usd    NUMERIC NOT NULL DEFAULT 1.27 CHECK (fixed_rate_usd > 0),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                    INT PRIMARY KEY CHECK (id = 1),
+  mode                  TEXT NOT NULL CHECK (mode IN ('live', 'fixed')) DEFAULT 'live',
+  fixed_rate_eur        NUMERIC NOT NULL DEFAULT 1.17 CHECK (fixed_rate_eur > 0),
+  fixed_rate_pln        NUMERIC NOT NULL DEFAULT 5.05 CHECK (fixed_rate_pln > 0),
+  fixed_rate_usd        NUMERIC NOT NULL DEFAULT 1.27 CHECK (fixed_rate_usd > 0),
+  -- Cache of the most recently confirmed upstream live rates. Independent
+  -- from fixed_rate_* above. Nullable until the first successful API fetch.
+  last_live_rate_eur    NUMERIC CHECK (last_live_rate_eur IS NULL OR last_live_rate_eur > 0),
+  last_live_rate_pln    NUMERIC CHECK (last_live_rate_pln IS NULL OR last_live_rate_pln > 0),
+  last_live_rate_usd    NUMERIC CHECK (last_live_rate_usd IS NULL OR last_live_rate_usd > 0),
+  last_live_rate_date   TEXT,
+  last_live_fetched_at  TIMESTAMPTZ,
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 INSERT INTO fx_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
