@@ -8,7 +8,7 @@ import CurrencySwitcher from "./CurrencySwitcher";
 const links = [
   { href: "/po-history", label: "PO History" },
   { href: "/stock-summary", label: "Stock Summary" },
-  { href: "/material-list", label: "Material List" },
+  { href: "/database", label: "Database" },
   { href: "/fx-rates", label: "FX Rates" },
 ];
 

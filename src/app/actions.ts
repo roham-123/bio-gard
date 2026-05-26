@@ -107,6 +107,19 @@ export async function createPackagingItemAction(
   return db.createPackagingItem(code, name, defaultCostGbp, defaultCostBasis);
 }
 
+export async function updatePackagingItemAction(
+  code: string,
+  name: string,
+  defaultCostGbp: number,
+  defaultCostBasis: string
+) {
+  return db.updatePackagingItem(code, name, defaultCostGbp, defaultCostBasis);
+}
+
+export async function deletePackagingItemAction(code: string) {
+  return db.deletePackagingItem(code);
+}
+
 export async function saveRecipePackagingLinesAction(
   recipeId: number,
   lines: CreateRecipePackagingLineInput[]

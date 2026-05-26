@@ -8,7 +8,6 @@ import {
   updateIngredientAction,
 } from "@/app/actions";
 import { formatCfu, formatStockCfuInput, parseNumberInput } from "@/lib/format";
-import PageShell from "@/components/layout/PageShell";
 import {
   btnDanger,
   btnPrimary,
@@ -46,7 +45,7 @@ function draftFromIngredient(ing: Ingredient): RowDraft {
   };
 }
 
-export default function MaterialListPage({ initialIngredients }: Props) {
+export default function MaterialsSection({ initialIngredients }: Props) {
   const [ingredients, setIngredients] = useState<Ingredient[]>(initialIngredients);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
@@ -237,17 +236,11 @@ export default function MaterialListPage({ initialIngredients }: Props) {
   };
 
   return (
-    <PageShell>
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200 pb-6 dark:border-zinc-600">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
-            Material List
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Manage every bacteria and filler available to formulas. Add new materials,
-            update prices or stock CFU, and remove materials that are no longer used.
-          </p>
-        </div>
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          All bacteria and fillers available to formulas.
+        </p>
         <button
           type="button"
           onClick={() => {
@@ -258,10 +251,10 @@ export default function MaterialListPage({ initialIngredients }: Props) {
         >
           {showAdd ? "Cancel" : "+ Add material"}
         </button>
-      </header>
+      </div>
 
       {/* Filters */}
-      <div className="mt-6 flex flex-wrap items-end gap-4">
+      <div className="mt-4 flex flex-wrap items-end gap-4">
         <div>
           <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
             Search
@@ -378,7 +371,7 @@ export default function MaterialListPage({ initialIngredients }: Props) {
                 onChange={(e) =>
                   setNewMaterial((m) => ({ ...m, stockCfu: e.target.value }))
                 }
-                placeholder={newMaterial.isBacteria ? "e.g. 1e11" : "—"}
+                placeholder={newMaterial.isBacteria ? "e.g. 1e13" : "—"}
                 className={inputCls}
                 disabled={creating || !newMaterial.isBacteria}
               />
@@ -571,6 +564,6 @@ export default function MaterialListPage({ initialIngredients }: Props) {
           </tbody>
         </table>
       </div>
-    </PageShell>
+    </div>
   );
 }
