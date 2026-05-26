@@ -141,6 +141,10 @@ export async function getPurchaseOrdersAction(filters?: {
   return db.getPurchaseOrders(filters);
 }
 
+export async function deletePurchaseOrderAction(poId: number) {
+  return db.deletePurchaseOrder(poId);
+}
+
 export async function getStockSummaryAction(filters?: { from?: string; to?: string }) {
   return db.getStockSummary(filters);
 }

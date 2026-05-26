@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useState } from "react";
 import type { PurchaseOrder } from "@/lib/db";
-import { getPurchaseOrdersAction } from "@/app/actions";
+import { deletePurchaseOrderAction, getPurchaseOrdersAction } from "@/app/actions";
 import { formatCurrency, formatDate, formatKg, formatNumber, formatTime } from "@/lib/format";
 import { useFx } from "@/app/FxProvider";
 import PageShell from "@/components/layout/PageShell";
@@ -23,6 +23,9 @@ export default function PoHistoryPage({ initialOrders }: Props) {
   const { fromDate, toDate, setFromDate, setToDate, reset: resetDates, applyPreset } = useDateRange();
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [poToDelete, setPoToDelete] = useState<PurchaseOrder | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchOrders = useCallback(
     async (params: { search?: string; from?: string; to?: string }) => {
@@ -77,6 +80,28 @@ export default function PoHistoryPage({ initialOrders }: Props) {
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
+  const confirmDeletePo = async () => {
+    if (!poToDelete) return;
+    setDeletingId(poToDelete.id);
+    setDeleteError(null);
+    try {
+      const deleted = await deletePurchaseOrderAction(poToDelete.id);
+      if (!deleted) {
+        setDeleteError("Purchase order was not found — it may have already been deleted.");
+        setPoToDelete(null);
+        return;
+      }
+      setOrders((prev) => prev.filter((o) => o.id !== poToDelete.id));
+      setExpandedId((prev) => (prev === poToDelete.id ? null : prev));
+      setPoToDelete(null);
+    } catch (err) {
+      console.error("Failed to delete purchase order:", err);
+      setDeleteError("Failed to delete purchase order. Please try again.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   type IngredientSnapshot = {
     ingredientId: string;
     ingredientName: string;
@@ -102,6 +127,12 @@ export default function PoHistoryPage({ initialOrders }: Props) {
             Browse and search all previously generated purchase orders.
           </p>
         </header>
+
+        {deleteError && (
+          <div className="mt-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300">
+            {deleteError}
+          </div>
+        )}
 
         {/* Filters */}
         <div className="mt-6 flex flex-wrap items-end gap-4">
@@ -210,6 +241,7 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                     <th className="px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
                       Total Cost
                     </th>
+                    <th className="w-12 px-3 py-3.5" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
@@ -269,10 +301,37 @@ export default function PoHistoryPage({ initialOrders }: Props) {
                           <td className="whitespace-nowrap px-4 py-3.5 text-right text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                             {finalTotalCost != null ? formatDisplayCurrency(finalTotalCost) : "—"}
                           </td>
+                          <td className="whitespace-nowrap px-3 py-3.5 text-center">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteError(null);
+                                setPoToDelete(po);
+                              }}
+                              disabled={deletingId === po.id}
+                              className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+                              title="Delete purchase order"
+                              aria-label={`Delete ${po.po_reference}`}
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                className="h-4 w-4"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </button>
+                          </td>
                         </tr>
                         {isExpanded && (ingredients.length > 0 || packaging.length > 0) && (
                           <tr key={`${po.id}-detail`}>
-                            <td colSpan={7} className="p-0">
+                            <td colSpan={8} className="p-0">
                               <div className="border-t border-zinc-100 bg-zinc-50/60 px-6 py-4 dark:border-zinc-700 dark:bg-zinc-800/60">
                                 <div className="grid gap-6 lg:grid-cols-2">
                                   {ingredients.length > 0 && (
@@ -354,6 +413,54 @@ export default function PoHistoryPage({ initialOrders }: Props) {
             </div>
           )}
         </div>
+
+      {poToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-zinc-900/70 p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-600 dark:bg-zinc-800">
+            <h4 className="text-sm font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+              Delete purchase order?
+            </h4>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+              Are you sure you want to delete{" "}
+              <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                {poToDelete.po_reference}
+              </span>
+              {poToDelete.product_name ?? poToDelete.recipe_name ? (
+                <>
+                  {" "}
+                  (
+                  <span className="font-medium">
+                    {poToDelete.product_name ?? poToDelete.recipe_name}
+                  </span>
+                  )
+                </>
+              ) : null}
+              ?
+            </p>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              This will remove it from PO history and stock summary. This action cannot be undone.
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingId != null}
+                onClick={() => setPoToDelete(null)}
+                className="rounded-md border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingId != null}
+                onClick={confirmDeletePo}
+                className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deletingId != null ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </PageShell>
   );
 }

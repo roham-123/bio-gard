@@ -152,3 +152,26 @@ export async function getPurchaseOrders(filters?: {
     return r.rows.map((row) => mapPurchaseOrder(row));
   });
 }
+
+export async function deletePurchaseOrder(poId: number): Promise<boolean> {
+  return withClient(async (client) => {
+    const before = await client.query<PurchaseOrderRow>(
+      `SELECT id, po_reference, recipe_id, recipe_name, batch_grams, units,
+              source_type, finished_product_id, product_name, detail, created_at
+       FROM purchase_orders WHERE id = $1`,
+      [poId]
+    );
+    const row = before.rows[0];
+    if (!row) return false;
+
+    await client.query(`DELETE FROM purchase_orders WHERE id = $1`, [poId]);
+    const po = mapPurchaseOrder(row);
+    await logAction(client, "delete_purchase_order", "purchase_orders", poId, {
+      po_reference: po.po_reference,
+      recipe_name: po.recipe_name,
+      product_name: po.product_name,
+      source_type: po.source_type,
+    });
+    return true;
+  });
+}
