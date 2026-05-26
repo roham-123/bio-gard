@@ -46,6 +46,14 @@ export function formatCfu(value: unknown): string {
   return formatNumber(n, { maxDecimals: 2, forceScientific: n >= 1e6 || (n > 0 && n < 0.01) });
 }
 
+/** Compact scientific notation for CFU input fields (e.g. 1e13, 2.5e11). */
+export function formatStockCfuInput(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "";
+  let s = value.toExponential(2).toLowerCase().replace("e+", "e");
+  s = s.replace(/(\.\d*?)0+e/, "$1e").replace(/\.e/, "e");
+  return s;
+}
+
 export function formatGrams(value: unknown): string {
   return toNum(value).toFixed(2);
 }

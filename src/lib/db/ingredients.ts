@@ -79,3 +79,72 @@ export async function updateIngredientCostPerKg(
     return updated;
   });
 }
+
+export async function updateIngredient(
+  ingredientId: string,
+  name: string,
+  stockCfuPerG: number,
+  costPerKgGbp: number
+): Promise<Ingredient | null> {
+  return withClient(async (client) => {
+    const before = await client.query<IngredientRow>(
+      `SELECT id, name, stock_cfu_per_g, cost_per_kg_gbp FROM ingredients WHERE id = $1`,
+      [ingredientId]
+    );
+    const prev = before.rows[0];
+    if (!prev) return null;
+
+    const r = await client.query<IngredientRow>(
+      `UPDATE ingredients
+         SET name = $1, stock_cfu_per_g = $2, cost_per_kg_gbp = $3
+       WHERE id = $4
+       RETURNING id, name, stock_cfu_per_g, cost_per_kg_gbp`,
+      [name, stockCfuPerG, costPerKgGbp, ingredientId]
+    );
+    if (r.rowCount === 0) return null;
+    const updated = mapIngredient(r.rows[0]);
+
+    await logAction(client, "update_ingredient", "ingredients", ingredientId, {
+      old_record: mapIngredient(prev),
+      new_record: updated,
+    });
+    return updated;
+  });
+}
+
+export type DeleteIngredientResult =
+  | { deleted: true }
+  | { deleted: false; reason: "not_found" }
+  | { deleted: false; reason: "in_use"; usedByRecipes: { id: number; name: string }[] };
+
+export async function deleteIngredient(
+  ingredientId: string
+): Promise<DeleteIngredientResult> {
+  return withClient(async (client) => {
+    const existing = await client.query<IngredientRow>(
+      `SELECT id, name, stock_cfu_per_g, cost_per_kg_gbp FROM ingredients WHERE id = $1`,
+      [ingredientId]
+    );
+    if (existing.rowCount === 0) {
+      return { deleted: false, reason: "not_found" } as const;
+    }
+
+    const usage = await client.query<{ id: number; name: string }>(
+      `SELECT DISTINCT r.id, r.name
+         FROM recipe_lines rl
+         JOIN recipes r ON r.id = rl.recipe_id
+        WHERE rl.ingredient_id = $1
+        ORDER BY r.name`,
+      [ingredientId]
+    );
+    if ((usage.rowCount ?? 0) > 0) {
+      return { deleted: false, reason: "in_use", usedByRecipes: usage.rows } as const;
+    }
+
+    await client.query(`DELETE FROM ingredients WHERE id = $1`, [ingredientId]);
+    await logAction(client, "delete_ingredient", "ingredients", ingredientId, {
+      deleted_record: mapIngredient(existing.rows[0]),
+    });
+    return { deleted: true } as const;
+  });
+}

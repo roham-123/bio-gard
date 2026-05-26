@@ -55,6 +55,19 @@ export async function updateIngredientCostPerKgAction(ingredientId: string, cost
   return db.updateIngredientCostPerKg(ingredientId, costPerKgGbp);
 }
 
+export async function updateIngredientAction(
+  ingredientId: string,
+  name: string,
+  stockCfuPerG: number,
+  costPerKgGbp: number
+) {
+  return db.updateIngredient(ingredientId, name, stockCfuPerG, costPerKgGbp);
+}
+
+export async function deleteIngredientAction(ingredientId: string) {
+  return db.deleteIngredient(ingredientId);
+}
+
 export async function getFinishedProductsAction(filters?: { search?: string }) {
   return db.getFinishedProducts(filters);
 }
