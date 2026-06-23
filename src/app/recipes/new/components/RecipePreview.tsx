@@ -1,7 +1,7 @@
 "use client";
 
 import { formatCfu } from "@/lib/format";
-import type { calculate, LineInput } from "@/lib/calc";
+import { getFulvic80Violation, type calculate, type LineInput } from "@/lib/calc";
 import {
   tableHeaderCellCls,
   tableHeaderRightCls,
@@ -24,6 +24,8 @@ export default function RecipePreview({
   previewResultByLineId,
   previewTotalFinalCfuPerGram,
 }: Props) {
+  const fulvic80Violation = previewResult ? getFulvic80Violation(previewResult.results) : null;
+
   return (
     <div className="rounded-xl border-2 border-zinc-200 bg-white shadow-md dark:border-zinc-600 dark:bg-zinc-800">
       <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-600">
@@ -62,8 +64,16 @@ export default function RecipePreview({
               <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
                 {previewLineInputs.map((line, idx) => {
                   const res = previewResultByLineId.get(idx + 1);
+                  const isFulvic80Violation = fulvic80Violation?.lineId === idx + 1;
                   return (
-                    <tr key={line.lineId} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+                    <tr
+                      key={line.lineId}
+                      className={
+                        isFulvic80Violation
+                          ? "bg-red-50 hover:bg-red-50 dark:bg-red-950/30 dark:hover:bg-red-950/30"
+                          : "hover:bg-zinc-50 dark:hover:bg-zinc-700/40"
+                      }
+                    >
                       <td className="whitespace-nowrap px-3 py-3 text-sm text-zinc-600 dark:text-zinc-400">
                         {idx + 1}
                       </td>
@@ -78,7 +88,13 @@ export default function RecipePreview({
                           ? Math.round(res.grams).toLocaleString("en-GB", { maximumFractionDigits: 0 })
                           : "—"}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+                      <td
+                        className={`whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums ${
+                          isFulvic80Violation
+                            ? "font-semibold text-red-700 dark:text-red-300"
+                            : "text-zinc-700 dark:text-zinc-300"
+                        }`}
+                      >
                         {res ? `${(res.percent * 100).toFixed(2)}%` : "—"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-zinc-700 dark:text-zinc-300">

@@ -47,6 +47,16 @@ export type CalcOutput = {
   error?: string;
 };
 
+export const FULVIC_80_INGREDIENT_ID = "Fulvic-80";
+export const MAX_FULVIC_80_PERCENT = 0.03;
+
+export type Fulvic80Violation = {
+  lineId: number;
+  ingredientId: string;
+  ingredientName: string;
+  percent: number;
+};
+
 export function calculate(
   totalBatchGrams: number,
   defaultBatchGrams: number,
@@ -207,7 +217,8 @@ export function calculate(
   const totalGrams = results.reduce((s, r) => s + r.grams, 0);
   const totalCfu = results.reduce((s, r) => s + r.totalCfu, 0);
   const totalCost = results.reduce((s, r) => s + r.costInProduct, 0);
-  const formulaValid = !batchOverflow && !hasZeroCfu;
+  const fulvic80Violation = getFulvic80Violation(results);
+  const formulaValid = !batchOverflow && !hasZeroCfu && !fulvic80Violation;
   const costPerKg = formulaValid && totalBatchGrams > 0 ? totalCost / (totalBatchGrams / 1000) : 0;
 
   let error: string | undefined;
@@ -220,12 +231,40 @@ export function calculate(
     const zeroMsg = `Stock CFU/g is zero for: ${zeroCfuNames.join(", ")}. Cannot calculate.`;
     error = error ? `${error}\n${zeroMsg}` : zeroMsg;
   }
+  if (fulvic80Violation) {
+    const fulvicMsg = `Fulvic-80 is ${formatPercent(fulvic80Violation.percent)} of this formula. Maximum allowed is ${formatPercent(MAX_FULVIC_80_PERCENT)}. Reduce Fulvic-80 to 3% or less before saving.`;
+    error = error ? `${error}\n${fulvicMsg}` : fulvicMsg;
+  }
 
   return { results, totalGrams, totalCfu, totalCost, costPerKg, formulaValid, error };
 }
 
 function fmtG(grams: number): string {
   return `${Math.round(grams).toLocaleString("en-GB")} g`;
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+export function isFulvic80Ingredient(ingredientId: string): boolean {
+  return ingredientId === FULVIC_80_INGREDIENT_ID;
+}
+
+export function getFulvic80Violation(results: LineResult[]): Fulvic80Violation | null {
+  const fulvic80 = results.find(
+    (result) =>
+      isFulvic80Ingredient(result.ingredientId) &&
+      result.percent > MAX_FULVIC_80_PERCENT
+  );
+  return fulvic80
+    ? {
+        lineId: fulvic80.lineId,
+        ingredientId: fulvic80.ingredientId,
+        ingredientName: fulvic80.ingredientName,
+        percent: fulvic80.percent,
+      }
+    : null;
 }
 
 export function recipeToLineInputs(recipe: RecipeWithLines): LineInput[] {

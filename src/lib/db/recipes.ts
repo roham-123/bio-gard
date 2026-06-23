@@ -1,7 +1,9 @@
+import type { PoolClient } from "pg";
 import { withClient, withTransaction } from "./client";
 import { logAction } from "./audit";
 import { fetchLabels, labelMappers, type RecipeLabel } from "./labels";
 import type { Ingredient } from "./ingredients";
+import { calculate, type LineInput } from "../calc";
 
 export type Recipe = {
   id: number;
@@ -204,6 +206,7 @@ export async function createRecipe(
   defaultKgPerSet = 1
 ): Promise<{ id: number }> {
   return withTransaction(async (client) => {
+    await assertRecipeGuardrails(client, defaultBatchGrams, lines);
     const recipeResult = await client.query<{ id: number }>(
       `INSERT INTO recipes (name, default_batch_grams, default_kg_per_set)
        VALUES ($1, $2, $3) RETURNING id`,
@@ -254,6 +257,7 @@ export async function updateRecipe(
   defaultKgPerSet = 1
 ): Promise<void> {
   await withTransaction(async (client) => {
+    await assertRecipeGuardrails(client, defaultBatchGrams, lines);
     await client.query(
       `UPDATE recipes SET name = $1, default_batch_grams = $2, default_kg_per_set = $3 WHERE id = $4`,
       [name, defaultBatchGrams, defaultKgPerSet, recipeId]
@@ -331,4 +335,61 @@ export async function saveRecipePackagingLines(
       line_count: lines.length,
     });
   });
+}
+
+async function assertRecipeGuardrails(
+  client: PoolClient,
+  defaultBatchGrams: number,
+  lines: CreateRecipeLineInput[]
+): Promise<void> {
+  if (lines.length === 0) return;
+
+  const ingredientIds = [...new Set(lines.map((line) => line.ingredientId))];
+  const ingredientResult = await client.query<{
+    id: string;
+    name: string;
+    stock_cfu_per_g: string;
+    cost_per_kg_gbp: string;
+  }>(
+    `SELECT id, name, stock_cfu_per_g, cost_per_kg_gbp
+     FROM ingredients
+     WHERE id = ANY($1::text[])`,
+    [ingredientIds]
+  );
+
+  const ingredientById = new Map(
+    ingredientResult.rows.map((row) => [
+      row.id,
+      {
+        name: row.name,
+        stockCfuPerG: Number(row.stock_cfu_per_g),
+        costPerKgGbp: Number(row.cost_per_kg_gbp),
+      },
+    ])
+  );
+
+  const calcLines: LineInput[] = lines.map((line, idx) => {
+    const ingredient = ingredientById.get(line.ingredientId);
+    if (!ingredient) {
+      throw new Error(`Ingredient not found: ${line.ingredientId}`);
+    }
+    return {
+      lineId: idx + 1,
+      ingredientId: line.ingredientId,
+      ingredientName: ingredient.name,
+      isBacteria: ingredient.stockCfuPerG > 0,
+      stockCfuPerG: ingredient.stockCfuPerG,
+      costPerKgGbp: ingredient.costPerKgGbp,
+      targetTotalCfu: line.targetTotalCfu,
+      defaultGrams: line.defaultGrams,
+      fillerMode: line.fillerMode,
+      fillerRatio: line.fillerRatio,
+      sortOrder: line.sortOrder,
+    };
+  });
+
+  const validation = calculate(defaultBatchGrams, defaultBatchGrams, calcLines);
+  if (!validation.formulaValid) {
+    throw new Error(validation.error ?? "Formula is invalid.");
+  }
 }

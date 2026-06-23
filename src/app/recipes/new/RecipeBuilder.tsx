@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Ingredient, RecipeWithLines } from "@/lib/db";
 import { parseNumberInput } from "@/lib/format";
-import { calculate, type LineInput } from "@/lib/calc";
+import { calculate, getFulvic80Violation, type LineInput } from "@/lib/calc";
 import {
   createRecipeAction,
   updateRecipeAction,
@@ -104,6 +104,14 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
         : 0,
     [previewResult]
   );
+
+  const highlightedLineUids = useMemo(() => {
+    const fulvic80Violation = previewResult ? getFulvic80Violation(previewResult.results) : null;
+    if (!fulvic80Violation) return new Set<string>();
+    const validLines = lines.filter((line) => line.ingredientId != null);
+    const line = validLines[fulvic80Violation.lineId - 1];
+    return line ? new Set([line.uid]) : new Set<string>();
+  }, [lines, previewResult]);
 
   const updateLine = useCallback((uid: string, patch: Partial<BuilderLine>) => {
     setLines((prev) => prev.map((l) => (l.uid === uid ? { ...l, ...patch } : l)));
@@ -273,6 +281,12 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
       };
     });
 
+    const savePreview = calculate(batchGrams, batchGrams, previewLineInputs);
+    if (!savePreview.formulaValid) {
+      setError(savePreview.error ?? "Formula is invalid.");
+      return;
+    }
+
     setSaving(true);
     try {
       if (isEditMode) {
@@ -292,7 +306,16 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
       );
       setSaving(false);
     }
-  }, [batchSizeKg, defaultKgPerSet, existingRecipe, isEditMode, lines, recipeName, router]);
+  }, [
+    batchSizeKg,
+    defaultKgPerSet,
+    existingRecipe,
+    isEditMode,
+    lines,
+    previewLineInputs,
+    recipeName,
+    router,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -319,6 +342,7 @@ export default function RecipeBuilder({ ingredients: initialIngredients, existin
         lines={lines}
         ingredients={ingredients}
         isEditMode={isEditMode}
+        highlightedLineUids={highlightedLineUids}
         costDraftByLineUid={costDraftByLineUid}
         updateLine={updateLine}
         removeRow={removeRow}

@@ -18,6 +18,7 @@ type Props = {
   lines: BuilderLine[];
   ingredients: Ingredient[];
   isEditMode: boolean;
+  highlightedLineUids?: Set<string>;
   costDraftByLineUid: Record<string, string>;
   updateLine: (uid: string, patch: Partial<BuilderLine>) => void;
   removeRow: (uid: string) => void;
@@ -32,6 +33,7 @@ export default function IngredientLinesTable({
   lines,
   ingredients,
   isEditMode,
+  highlightedLineUids,
   costDraftByLineUid,
   updateLine,
   removeRow,
@@ -60,7 +62,14 @@ export default function IngredientLinesTable({
         </thead>
         <tbody className="divide-y divide-zinc-200 dark:divide-zinc-600">
           {lines.map((line, idx) => (
-            <tr key={line.uid} className="hover:bg-zinc-50 dark:hover:bg-zinc-700/40">
+            <tr
+              key={line.uid}
+              className={
+                highlightedLineUids?.has(line.uid)
+                  ? "bg-red-50 hover:bg-red-50 dark:bg-red-950/30 dark:hover:bg-red-950/30"
+                  : "hover:bg-zinc-50 dark:hover:bg-zinc-700/40"
+              }
+            >
               <td className="whitespace-nowrap px-3 py-3 text-sm font-medium text-zinc-500 dark:text-zinc-400">
                 {idx + 1}
               </td>
